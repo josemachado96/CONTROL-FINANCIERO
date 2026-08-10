@@ -16,14 +16,17 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------
-# FUNCIONES DE ALMACENAMIENTO MULTI-PERFIL
+# FUNCIONES DE ALMACENAMIENTO Y PERSISTENCIA
 # ---------------------------------------------------------
 ARCH_PERFILES = "perfiles_config.json"
 
 def cargar_perfiles():
     if os.path.exists(ARCH_PERFILES):
-        with open(ARCH_PERFILES, "r", encoding="utf-8") as f:
-            return json.load(f)
+        try:
+            with open(ARCH_PERFILES, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
     return ["Usuario Principal"]
 
 def guardar_perfiles(lista_perfiles):
@@ -37,16 +40,18 @@ def obtener_nombre_archivo_perfil(nombre_perfil):
 def cargar_datos_perfil(nombre_perfil):
     archivo = obtener_nombre_archivo_perfil(nombre_perfil)
     if os.path.exists(archivo):
-        with open(archivo, "r", encoding="utf-8") as f:
-            datos = json.load(f)
-            # Compatibilidad con archivos antiguos (que solo eran una lista de gastos)
-            if isinstance(datos, list):
-                return {"gastos": datos, "ingresos": []}
-            if isinstance(datos, dict):
-                return {
-                    "gastos": datos.get("gastos", []),
-                    "ingresos": datos.get("ingresos", [])
-                }
+        try:
+            with open(archivo, "r", encoding="utf-8") as f:
+                datos = json.load(f)
+                if isinstance(datos, list):
+                    return {"gastos": datos, "ingresos": []}
+                if isinstance(datos, dict):
+                    return {
+                        "gastos": datos.get("gastos", []),
+                        "ingresos": datos.get("ingresos", [])
+                    }
+        except Exception:
+            pass
     return {"gastos": [], "ingresos": []}
 
 def guardar_datos_perfil(nombre_perfil, gastos_lista, ingresos_lista):
@@ -59,7 +64,7 @@ def guardar_datos_perfil(nombre_perfil, gastos_lista, ingresos_lista):
         json.dump(datos_dict, f, ensure_ascii=False, indent=4)
 
 # ---------------------------------------------------------
-# GESTIÓN DE SESIÓN Y PERFILES
+# BARRA LATERAL: PERFILES Y RESPALDOS (BACKUP)
 # ---------------------------------------------------------
 st.sidebar.title("👤 Perfiles de Usuario")
 
@@ -69,7 +74,7 @@ perfil_seleccionado = st.sidebar.selectbox("Selecciona tu Perfil:", perfiles)
 # Crear nuevo perfil (límite 5)
 with st.sidebar.expander("➕ Agregar Nuevo Perfil"):
     if len(perfiles) >= 5:
-        st.warning("⚠️ Se ha alcanzado el límite máximo de 5 perfiles.")
+        st.warning("⚠️ Límite máximo de 5 perfiles.")
     else:
         nuevo_nombre = st.text_input("Nombre y Apellido:")
         if st.button("Crear Perfil"):
@@ -79,19 +84,52 @@ with st.sidebar.expander("➕ Agregar Nuevo Perfil"):
                 else:
                     perfiles.append(nuevo_nombre.strip())
                     guardar_perfiles(perfiles)
-                    st.success(f"Perfil '{nuevo_nombre.strip()}' creado con éxito.")
+                    st.success(f"Perfil '{nuevo_nombre.strip()}' creado.")
                     st.rerun()
             else:
                 st.error("Ingresa un nombre válido.")
 
 st.sidebar.markdown("---")
 
-# Cargar/Sincronizar datos del perfil activo en session_state
+# Cargar/Sincronizar datos del perfil activo
 if "perfil_actual" not in st.session_state or st.session_state.get("perfil_actual") != perfil_seleccionado:
     st.session_state["perfil_actual"] = perfil_seleccionado
     datos_cargados = cargar_datos_perfil(perfil_seleccionado)
     st.session_state["datos_gastos"] = datos_cargados["gastos"]
     st.session_state["datos_ingresos"] = datos_cargados["ingresos"]
+
+# Módulo de Copia de Seguridad en la Nube
+st.sidebar.subheader("💾 Copia de Seguridad (Nube)")
+
+# Exportar Respaldo
+backup_data = {
+    "perfiles": perfiles,
+    "perfil_activo": perfil_seleccionado,
+    "gastos": st.session_state["datos_gastos"],
+    "ingresos": st.session_state["datos_ingresos"]
+}
+json_backup = json.dumps(backup_data, ensure_ascii=False, indent=4)
+
+st.sidebar.download_button(
+    label="📥 Descargar Respaldo Datos (.json)",
+    data=json_backup,
+    file_name=f"backup_finanzas_{perfil_seleccionado}.json",
+    mime="application/json"
+)
+
+# Importar Respaldo
+uploaded_file = st.sidebar.file_uploader("📤 Restaurar Respaldo", type=["json"])
+if uploaded_file is not None:
+    try:
+        data_restaurada = json.load(uploaded_file)
+        if "gastos" in data_restaurada and "ingresos" in data_restaurada:
+            st.session_state["datos_gastos"] = data_restaurada["gastos"]
+            st.session_state["datos_ingresos"] = data_restaurada["ingresos"]
+            guardar_datos_perfil(perfil_seleccionado, st.session_state["datos_gastos"], st.session_state["datos_ingresos"])
+            st.sidebar.success("¡Datos restaurados con éxito!")
+            st.rerun()
+    except Exception as e:
+        st.sidebar.error("Archivo de respaldo no válido.")
 
 st.title(f"📊 Control Financiero — Perfil: {perfil_seleccionado}")
 
@@ -110,7 +148,7 @@ with col_f2:
     anio_ciclo = st.selectbox("📆 Año:", [str(a) for a in range(2026, 2036)])
 
 # ---------------------------------------------------------
-# FORMULARIOS DE REGISTRO (GASTOS E INGRESOS)
+# FORMULARIOS DE REGISTRO
 # ---------------------------------------------------------
 tab_reg_gasto, tab_reg_ingreso = st.tabs(["🛍️ Registrar Gasto / Consumo", "💵 Registrar Ingreso / Fuente"])
 
@@ -188,7 +226,6 @@ with tab_reg_gasto:
 
             monto_solca = (subtotal * 0.005) if aplica_solca else 0.0
             monto_final = monto_con_iva + monto_solca
-            
             monto_cuota_mensual = monto_final if (es_recurrente or es_efectivo) else (monto_final / cuota_total)
 
             nuevo_id = int(datetime.now().timestamp() * 1000)
@@ -254,11 +291,10 @@ with tab_reg_ingreso:
 st.markdown("---")
 
 # ---------------------------------------------------------
-# FILTRADO Y MÉTRICAS DE BALANCE GENERAL
+# FILTRADO Y MÉTRICAS
 # ---------------------------------------------------------
 st.subheader(f"📌 Resumen Financiero: {mes_ciclo} {anio_ciclo}")
 
-# Filtrado robusto (comparando cadenas)
 gastos_filtrados = [
     g for g in st.session_state["datos_gastos"]
     if str(g.get("Ciclo_Mes")) == str(mes_ciclo) and str(g.get("Año")) == str(anio_ciclo)
@@ -282,11 +318,6 @@ if not df_gastos.empty:
     for col, default_val in cols_requeridas.items():
         if col not in df_gastos.columns:
             df_gastos[col] = default_val
-
-    if "Cuota_Progreso" not in df_gastos.columns or df_gastos["Cuota_Progreso"].isnull().any():
-        df_gastos["Cuota_Progreso"] = df_gastos.apply(
-            lambda r: f"{int(r.get('Cuota_Actual', 1))}/{int(r.get('Cuota_Total', 1))}", axis=1
-        )
 
     df_p19_18 = df_gastos[df_gastos["Periodo_Asignado"] == "Periodo 19 al 18 (Diners)"]
     p19_diners = df_p19_18[df_p19_18["Medio_Pago"].str.contains("Diners", na=False)]["Monto_Cuota_Mensual"].sum() if not df_p19_18.empty else 0.0
@@ -326,7 +357,7 @@ with col_m4:
 st.markdown("---")
 
 # ---------------------------------------------------------
-# TABLAS DEL HISTORIAL DE REGISTROS
+# TABLAS DE VISUALIZACIÓN E HISTORIAL
 # ---------------------------------------------------------
 cols_vis_gastos = ["Descripcion", "Medio_Pago", "Periodo_Asignado", "Cuota_Progreso", "Subtotal", "IVA_15", "SOLCA_05", "Monto_Cuota_Mensual"]
 
@@ -396,7 +427,7 @@ with tab6:
 st.markdown("---")
 
 # ---------------------------------------------------------
-# ⚙️ MÓDULO PARA EDITAR O ELIMINAR REGISTROS
+# MÓDULO PARA EDITAR O ELIMINAR REGISTROS
 # ---------------------------------------------------------
 st.subheader(f"⚙️ Modificar o Eliminar Registros — {perfil_seleccionado}")
 
@@ -404,17 +435,12 @@ ver_todos = st.checkbox("🌐 Ver todos los meses del historial (desmarcado solo
 
 col_mod_g, col_mod_i = st.columns(2)
 
-# --- EDITAR / ELIMINAR GASTOS ---
 with col_mod_g:
     st.markdown("#### 🛍️ Editar / Borrar Gastos")
-    
-    if ver_todos:
-        gastos_editables = list(enumerate(st.session_state["datos_gastos"]))
-    else:
-        gastos_editables = [
-            (idx, r) for idx, r in enumerate(st.session_state["datos_gastos"])
-            if str(r.get("Ciclo_Mes")) == str(mes_ciclo) and str(r.get("Año")) == str(anio_ciclo)
-        ]
+    gastos_editables = list(enumerate(st.session_state["datos_gastos"])) if ver_todos else [
+        (idx, r) for idx, r in enumerate(st.session_state["datos_gastos"])
+        if str(r.get("Ciclo_Mes")) == str(mes_ciclo) and str(r.get("Año")) == str(anio_ciclo)
+    ]
 
     if gastos_editables:
         opciones_gasto = {
@@ -446,17 +472,12 @@ with col_mod_g:
     else:
         st.info("No hay gastos disponibles para editar en la selección actual.")
 
-# --- EDITAR / ELIMINAR INGRESOS ---
 with col_mod_i:
     st.markdown("#### 💵 Editar / Borrar Ingresos")
-    
-    if ver_todos:
-        ingresos_editables = list(enumerate(st.session_state["datos_ingresos"]))
-    else:
-        ingresos_editables = [
-            (idx, r) for idx, r in enumerate(st.session_state["datos_ingresos"])
-            if str(r.get("Ciclo_Mes")) == str(mes_ciclo) and str(r.get("Año")) == str(anio_ciclo)
-        ]
+    ingresos_editables = list(enumerate(st.session_state["datos_ingresos"])) if ver_todos else [
+        (idx, r) for idx, r in enumerate(st.session_state["datos_ingresos"])
+        if str(r.get("Ciclo_Mes")) == str(mes_ciclo) and str(r.get("Año")) == str(anio_ciclo)
+    ]
 
     if ingresos_editables:
         opciones_ingreso = {
@@ -491,7 +512,7 @@ with col_mod_i:
 st.markdown("---")
 
 # ---------------------------------------------------------
-# 📥 EXPORTACIÓN A EXCEL Y PDF
+# EXPORTACIÓN A EXCEL (CORREGIDO SIN ERRORES DE HOJAS VACÍAS) Y PDF
 # ---------------------------------------------------------
 st.subheader("📥 Exportar Reporte del Perfil")
 
@@ -500,6 +521,17 @@ col_exp1, col_exp2 = st.columns(2)
 with col_exp1:
     output_excel = io.BytesIO()
     with pd.ExcelWriter(output_excel, engine="openpyxl") as writer:
+        # Pestaña fija que garantiza que la hoja NUNCA esté vacía
+        df_resumen = pd.DataFrame([{
+            "Perfil": perfil_seleccionado,
+            "Ciclo": mes_ciclo,
+            "Año": anio_ciclo,
+            "Total Ingresos": total_ingresos_mes,
+            "Total Gastos": total_gastos_general,
+            "Balance Neto": balance_neto
+        }])
+        df_resumen.to_excel(writer, sheet_name="Resumen", index=False)
+
         if not df_ingresos.empty:
             df_ingresos[["Fuente", "Monto", "Fecha_Ingreso"]].to_excel(writer, sheet_name="Ingresos", index=False)
         if not df_gastos.empty:
