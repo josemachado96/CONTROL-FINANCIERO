@@ -16,122 +16,193 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------
-# FUNCIONES DE ALMACENAMIENTO Y PERSISTENCIA
+# FUNCIONES DE AUTENTICACIÓN Y BASE DE DATOS LOCAL
 # ---------------------------------------------------------
-ARCH_PERFILES = "perfiles_config.json"
+ARCH_USUARIOS = "usuarios_db.json"
 
-def cargar_perfiles():
-    if os.path.exists(ARCH_PERFILES):
+def cargar_usuarios():
+    if os.path.exists(ARCH_USUARIOS):
         try:
-            with open(ARCH_PERFILES, "r", encoding="utf-8") as f:
+            with open(ARCH_USUARIOS, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             pass
-    return ["Usuario Principal"]
+    return {}
 
-def guardar_perfiles(lista_perfiles):
-    with open(ARCH_PERFILES, "w", encoding="utf-8") as f:
-        json.dump(lista_perfiles, f, ensure_ascii=False, indent=4)
+def guardar_usuarios(usuarios):
+    with open(ARCH_USUARIOS, "w", encoding="utf-8") as f:
+        json.dump(usuarios, f, ensure_ascii=False, indent=4)
 
-def obtener_nombre_archivo_perfil(nombre_perfil):
-    nombre_limpio = "".join(c for c in nombre_perfil if c.isalnum() or c in (' ', '_')).rstrip()
-    return f"datos_{nombre_limpio.replace(' ', '_')}.json"
+def obtener_nombre_archivo_usuario(correo):
+    correo_limpio = "".join(c for c in correo if c.isalnum() or c in ('@', '.', '_')).replace('@', '_at_').replace('.', '_')
+    return f"datos_user_{correo_limpio}.json"
 
-def cargar_datos_perfil(nombre_perfil):
-    archivo = obtener_nombre_archivo_perfil(nombre_perfil)
+def cargar_datos_usuario(correo):
+    archivo = obtener_nombre_archivo_usuario(correo)
     if os.path.exists(archivo):
         try:
             with open(archivo, "r", encoding="utf-8") as f:
                 datos = json.load(f)
-                if isinstance(datos, list):
-                    return {"gastos": datos, "ingresos": []}
-                if isinstance(datos, dict):
-                    return {
-                        "gastos": datos.get("gastos", []),
-                        "ingresos": datos.get("ingresos", [])
-                    }
+                return {
+                    "gastos": datos.get("gastos", []),
+                    "ingresos": datos.get("ingresos", []),
+                    "config_modulos": datos.get("config_modulos", [])
+                }
         except Exception:
             pass
-    return {"gastos": [], "ingresos": []}
+    return {"gastos": [], "ingresos": [], "config_modulos": []}
 
-def guardar_datos_perfil(nombre_perfil, gastos_lista, ingresos_lista):
-    archivo = obtener_nombre_archivo_perfil(nombre_perfil)
+def guardar_datos_usuario(correo, gastos, ingresos, config_modulos):
+    archivo = obtener_nombre_archivo_usuario(correo)
     datos_dict = {
-        "gastos": gastos_lista,
-        "ingresos": ingresos_lista
+        "gastos": gastos,
+        "ingresos": ingresos,
+        "config_modulos": config_modulos
     }
     with open(archivo, "w", encoding="utf-8") as f:
         json.dump(datos_dict, f, ensure_ascii=False, indent=4)
 
 # ---------------------------------------------------------
-# BARRA LATERAL: PERFILES Y RESPALDOS (BACKUP)
+# MANEJO DE ESTADO DE SESIÓN (LOGIN / REGISTRO)
 # ---------------------------------------------------------
-st.sidebar.title("👤 Perfiles de Usuario")
+if "autenticado" not in st.session_state:
+    st.session_state["autenticado"] = False
+if "usuario_actual" not in st.session_state:
+    st.session_state["usuario_actual"] = None
 
-perfiles = cargar_perfiles()
-perfil_seleccionado = st.sidebar.selectbox("Selecciona tu Perfil:", perfiles)
+# ---------------------------------------------------------
+# PÁGINA 1: INICIO DE SESIÓN / REGISTRO DE USUARIO
+# ---------------------------------------------------------
+if not st.session_state["autenticado"]:
+    st.title("🔐 Acceso al Sistema de Control Financiero")
+    st.markdown("Bienvenido. Por favor inicia sesión o crea una cuenta para continuar.")
 
-# Crear nuevo perfil (límite 5)
-with st.sidebar.expander("➕ Agregar Nuevo Perfil"):
-    if len(perfiles) >= 5:
-        st.warning("⚠️ Límite máximo de 5 perfiles.")
-    else:
-        nuevo_nombre = st.text_input("Nombre y Apellido:")
-        if st.button("Crear Perfil"):
-            if nuevo_nombre.strip() != "":
-                if nuevo_nombre.strip() in perfiles:
-                    st.error("Este perfil ya existe.")
-                else:
-                    perfiles.append(nuevo_nombre.strip())
-                    guardar_perfiles(perfiles)
-                    st.success(f"Perfil '{nuevo_nombre.strip()}' creado.")
-                    st.rerun()
+    tab_login, tab_registro = st.tabs(["🔑 Iniciar Sesión", "📝 Crear Cuenta"])
+
+    usuarios = cargar_usuarios()
+
+    with tab_login:
+        st.subheader("Ingresa con tus credenciales")
+        login_correo = st.text_input("Correo Electrónico:", key="login_email").lower().strip()
+        login_pass = st.text_input("Contraseña:", type="password", key="login_pass")
+        btn_login = st.button("Iniciar Sesión", type="primary")
+
+        if btn_login:
+            if login_correo in usuarios and usuarios[login_correo]["password"] == login_pass:
+                st.session_state["autenticado"] = True
+                st.session_state["usuario_actual"] = login_correo
+                datos_u = cargar_datos_usuario(login_correo)
+                st.session_state["datos_gastos"] = datos_u["gastos"]
+                st.session_state["datos_ingresos"] = datos_u["ingresos"]
+                st.session_state["config_modulos"] = datos_u["config_modulos"]
+                st.success(f"¡Bienvenido de nuevo, {usuarios[login_correo]['nombre']}!")
+                st.rerun()
             else:
-                st.error("Ingresa un nombre válido.")
+                st.error("Correo o contraseña incorrectos.")
+
+    with tab_registro:
+        st.subheader("Regístrate como nuevo usuario")
+        reg_nombre = st.text_input("Nombre y Apellido:", key="reg_nombre")
+        reg_correo = st.text_input("Correo Electrónico:", key="reg_email").lower().strip()
+        reg_pass = st.text_input("Contraseña:", type="password", key="reg_pass")
+        reg_pass_conf = st.text_input("Confirmar Contraseña:", type="password", key="reg_pass_conf")
+        btn_registro = st.button("Crear Cuenta")
+
+        if btn_registro:
+            if not reg_nombre.strip() or not reg_correo.strip() or not reg_pass:
+                st.error("Por favor completa todos los campos.")
+            elif reg_pass != reg_pass_conf:
+                st.error("Las contraseñas no coinciden.")
+            elif reg_correo in usuarios:
+                st.error("Este correo electrónico ya está registrado.")
+            else:
+                usuarios[reg_correo] = {
+                    "nombre": reg_nombre.strip(),
+                    "password": reg_pass
+                }
+                guardar_usuarios(usuarios)
+                # Iniciar sesión automáticamente
+                st.session_state["autenticado"] = True
+                st.session_state["usuario_actual"] = reg_correo
+                st.session_state["datos_gastos"] = []
+                st.session_state["datos_ingresos"] = []
+                st.session_state["config_modulos"] = []
+                st.success("¡Cuenta creada exitosamente!")
+                st.rerun()
+
+    st.stop() # Detiene la ejecución para no mostrar el panel si no ha iniciado sesión
+
+# ---------------------------------------------------------
+# PÁGINA 2: SELECCIÓN Y CONFIGURACIÓN DE MÓDULOS (CHECKBOXES)
+# ---------------------------------------------------------
+usuarios = cargar_usuarios()
+nombre_usuario = usuarios.get(st.session_state["usuario_actual"], {}).get("nombre", "Usuario")
+
+if not st.session_state.get("config_modulos"):
+    st.balloons()
+    st.title(f"👋 ¡Bienvenido a tu Sistema de Control Financiero, {nombre_usuario}!")
+    st.markdown("### 🛠️ Personaliza tu Perfil")
+    st.write("Selecciona los componentes y métodos de pago que utilizas frecuentemente para adaptar tu panel:")
+
+    col_chk1, col_chk2 = st.columns(2)
+
+    with col_chk1:
+        mod_credito = st.checkbox("💳 Tarjetas de Crédito (Diners / Pacificard)", value=True)
+        mod_debito = st.checkbox("🏦 Tarjetas de Débito / Cuentas Bancarias", value=True)
+        mod_efectivo = st.checkbox("💵 Pagos en Efectivo", value=True)
+
+    with col_chk2:
+        mod_transf = st.checkbox("🔄 Transferencias Bancarias", value=True)
+        mod_recurrentes = st.checkbox("📅 Pagos Recurrentes Fijos / Suscripciones", value=True)
+        mod_ahorro = st.checkbox("💰 Sección de Ahorro e Inversión", value=True)
+
+    btn_guardar_config = st.button("🚀 Configurar y Cargar Mi Perfil", type="primary")
+
+    if btn_guardar_config:
+        seleccionados = []
+        if mod_credito: seleccionados.append("Tarjetas de Crédito")
+        if mod_debito: seleccionados.append("Tarjetas de Débito")
+        if mod_efectivo: seleccionados.append("Pagos en Efectivo")
+        if mod_transf: seleccionados.append("Transferencias")
+        if mod_recurrentes: seleccionados.append("Pagos Recurrentes")
+        if mod_ahorro: seleccionados.append("Ahorro e Inversión")
+
+        if not seleccionados:
+            st.warning("Selecciona al menos una opción para continuar.")
+        else:
+            st.session_state["config_modulos"] = seleccionados
+            guardar_datos_usuario(
+                st.session_state["usuario_actual"],
+                st.session_state["datos_gastos"],
+                st.session_state["datos_ingresos"],
+                st.session_state["config_modulos"]
+            )
+            st.success("¡Perfil cargado con éxito!")
+            st.rerun()
+
+    st.stop()
+
+# ---------------------------------------------------------
+# PÁGINA 3: PANEL PRINCIPAL FINANCIERO
+# ---------------------------------------------------------
+st.sidebar.title(f"👤 {nombre_usuario}")
+st.sidebar.caption(f"📧 {st.session_state['usuario_actual']}")
+
+if st.sidebar.button("⚙️ Reconfigurar Módulos"):
+    st.session_state["config_modulos"] = []
+    st.rerun()
+
+if st.sidebar.button("🚪 Cerrar Sesión"):
+    st.session_state["autenticado"] = False
+    st.session_state["usuario_actual"] = None
+    st.rerun()
 
 st.sidebar.markdown("---")
+st.sidebar.markdown("**Módulos Activos:**")
+for mod in st.session_state["config_modulos"]:
+    st.sidebar.write(f"✅ {mod}")
 
-# Cargar/Sincronizar datos del perfil activo
-if "perfil_actual" not in st.session_state or st.session_state.get("perfil_actual") != perfil_seleccionado:
-    st.session_state["perfil_actual"] = perfil_seleccionado
-    datos_cargados = cargar_datos_perfil(perfil_seleccionado)
-    st.session_state["datos_gastos"] = datos_cargados["gastos"]
-    st.session_state["datos_ingresos"] = datos_cargados["ingresos"]
-
-# Módulo de Copia de Seguridad en la Nube
-st.sidebar.subheader("💾 Copia de Seguridad (Nube)")
-
-# Exportar Respaldo
-backup_data = {
-    "perfiles": perfiles,
-    "perfil_activo": perfil_seleccionado,
-    "gastos": st.session_state["datos_gastos"],
-    "ingresos": st.session_state["datos_ingresos"]
-}
-json_backup = json.dumps(backup_data, ensure_ascii=False, indent=4)
-
-st.sidebar.download_button(
-    label="📥 Descargar Respaldo Datos (.json)",
-    data=json_backup,
-    file_name=f"backup_finanzas_{perfil_seleccionado}.json",
-    mime="application/json"
-)
-
-# Importar Respaldo
-uploaded_file = st.sidebar.file_uploader("📤 Restaurar Respaldo", type=["json"])
-if uploaded_file is not None:
-    try:
-        data_restaurada = json.load(uploaded_file)
-        if "gastos" in data_restaurada and "ingresos" in data_restaurada:
-            st.session_state["datos_gastos"] = data_restaurada["gastos"]
-            st.session_state["datos_ingresos"] = data_restaurada["ingresos"]
-            guardar_datos_perfil(perfil_seleccionado, st.session_state["datos_gastos"], st.session_state["datos_ingresos"])
-            st.sidebar.success("¡Datos restaurados con éxito!")
-            st.rerun()
-    except Exception as e:
-        st.sidebar.error("Archivo de respaldo no válido.")
-
-st.title(f"📊 Control Financiero — Perfil: {perfil_seleccionado}")
+st.title(f"📊 Control Financiero Personal")
 
 # ---------------------------------------------------------
 # FILTROS DE CICLO Y MES/AÑO
@@ -153,29 +224,36 @@ with col_f2:
 tab_reg_gasto, tab_reg_ingreso = st.tabs(["🛍️ Registrar Gasto / Consumo", "💵 Registrar Ingreso / Fuente"])
 
 with tab_reg_gasto:
-    st.subheader("📝 Registrar Nuevo Consumo o Pago Fijo")
+    st.subheader("📝 Registrar Nuevo Consumo")
 
     col_r1, col_r2, col_r3 = st.columns(3)
 
+    # Filtrar medios de pago basados en la configuración seleccionada
+    opciones_pago = []
+    if "Tarjetas de Crédito" in st.session_state["config_modulos"]:
+        opciones_pago.extend(["💳 Tarjeta Diners Club (Corte 19 al 18)", "💳 Tarjeta Pacificard (Corte 24 al 23)"])
+    if "Tarjetas de Débito" in st.session_state["config_modulos"]:
+        opciones_pago.append("🏦 Tarjeta de Débito")
+    if "Pagos en Efectivo" in st.session_state["config_modulos"]:
+        opciones_pago.append("💵 Efectivo")
+    if "Transferencias" in st.session_state["config_modulos"]:
+        opciones_pago.append("🔄 Transferencia Bancaria")
+    if "Pagos Recurrentes" in st.session_state["config_modulos"]:
+        opciones_pago.append("🔁 Pago Recurrente Fijo")
+
+    if not opciones_pago:
+        opciones_pago = ["💵 Efectivo / Otros"]
+
     with col_r1:
-        descripcion = st.text_input("Establecimiento / Concepto:", placeholder="Ej. Supermaxi, Gimnasio, GánaVacaciones")
-        monto_base = st.number_input("Monto / Valor Base ($):", min_value=0.0, step=0.01)
-        
-        medio_pago = st.selectbox(
-            "Medio de Pago / Tipo de Consumo:",
-            [
-                "💳 Tarjeta Diners Club (Corte 19 al 18)",
-                "💳 Tarjeta Pacificard (Corte 24 al 23)",
-                "🔄 Pago Recurrente Mensual (Fijo / Cuotas Largas)",
-                "💵 Efectivo / Transferencia"
-            ]
-        )
+        descripcion = st.text_input("Establecimiento / Concepto:", placeholder="Ej. Supermaxi, Gimnasio")
+        monto_base = st.number_input("Monto Base ($):", min_value=0.0, step=0.01)
+        medio_pago = st.selectbox("Medio de Pago:", opciones_pago)
 
     with col_r2:
-        es_efectivo = ("Efectivo" in medio_pago)
-        es_recurrente = ("Recurrente" in medio_pago)
+        es_contado = any(k in medio_pago for k in ["Efectivo", "Débito", "Transferencia"])
+        es_recurrente = "Recurrente" in medio_pago
 
-        if es_efectivo or es_recurrente:
+        if es_contado or es_recurrente:
             periodo_asignado = st.selectbox(
                 "📌 Asignar Pago al Período:",
                 ["Periodo 19 al 18 (Diners)", "Periodo 24 al 23 (Pacificard)"]
@@ -185,21 +263,21 @@ with tab_reg_gasto:
         else:
             periodo_asignado = "Periodo 24 al 23 (Pacificard)"
 
-        if es_efectivo:
+        if es_contado:
             cuota_actual = 1
             cuota_total = 1
-            st.info("ℹ️ Pago contado en efectivo.")
+            st.info("ℹ️ Pago directo de contado.")
         else:
             c_c1, c_c2 = st.columns(2)
             with c_c1:
-                cuota_total = st.number_input("Número Total de Cuotas:", min_value=1, max_value=120, value=40 if es_recurrente else 1)
+                cuota_total = st.number_input("Número Total Cuotas:", min_value=1, max_value=120, value=40 if es_recurrente else 1)
             with c_c2:
                 cuota_actual = st.number_input("Cuota Actual:", min_value=1, max_value=120, value=1)
 
     with col_r3:
         incluye_iva = st.radio("Manejo de IVA:", ["Sin IVA / Exento", "Ya incluye IVA", "Sumar IVA (15%)"])
-        if not es_efectivo and not es_recurrente:
-            aplica_solca = st.checkbox("Aplica 0.5% SOLCA (Diferidos crédito)")
+        if "Tarjetas de Crédito" in st.session_state["config_modulos"] and not es_contado:
+            aplica_solca = st.checkbox("Aplica 0.5% SOLCA")
         else:
             aplica_solca = False
 
@@ -208,8 +286,6 @@ with tab_reg_gasto:
     if btn_guardar_gasto:
         if descripcion.strip() == "" or monto_base <= 0:
             st.error("Por favor ingresa un concepto válido y un monto mayor a 0.")
-        elif cuota_actual > cuota_total:
-            st.error(f"La cuota actual ({cuota_actual}) no puede ser mayor que las cuotas totales ({cuota_total}).")
         else:
             if incluye_iva == "Sumar IVA (15%)":
                 subtotal = monto_base
@@ -226,13 +302,10 @@ with tab_reg_gasto:
 
             monto_solca = (subtotal * 0.005) if aplica_solca else 0.0
             monto_final = monto_con_iva + monto_solca
-            monto_cuota_mensual = monto_final if (es_recurrente or es_efectivo) else (monto_final / cuota_total)
-
-            nuevo_id = int(datetime.now().timestamp() * 1000)
+            monto_cuota_mensual = monto_final if (es_recurrente or es_contado) else (monto_final / cuota_total)
 
             nuevo_registro = {
-                "id": nuevo_id,
-                "Perfil": perfil_seleccionado,
+                "id": int(datetime.now().timestamp() * 1000),
                 "Ciclo_Mes": str(mes_ciclo),
                 "Año": str(anio_ciclo),
                 "Descripcion": descripcion.strip(),
@@ -249,19 +322,19 @@ with tab_reg_gasto:
             }
 
             st.session_state["datos_gastos"].append(nuevo_registro)
-            guardar_datos_perfil(perfil_seleccionado, st.session_state["datos_gastos"], st.session_state["datos_ingresos"])
-            st.success(f"✅ ¡Gasto '{descripcion}' guardado para {mes_ciclo} {anio_ciclo}!")
+            guardar_datos_usuario(st.session_state["usuario_actual"], st.session_state["datos_gastos"], st.session_state["datos_ingresos"], st.session_state["config_modulos"])
+            st.success(f"✅ ¡Gasto '{descripcion}' registrado!")
             st.rerun()
 
 with tab_reg_ingreso:
-    st.subheader("💵 Registrar Nuevo Ingreso / Fuente de Dinero")
+    st.subheader("💵 Registrar Nuevo Ingreso")
 
     col_i1, col_i2, col_i3 = st.columns(3)
 
     with col_i1:
-        fuente_ingreso = st.text_input("Origen / Fuente del Ingreso:", placeholder="Ej. Sueldo, Freelance, Venta de Garage")
+        fuente_ingreso = st.text_input("Fuente de Ingreso:", placeholder="Ej. Sueldo, Freelance")
     with col_i2:
-        monto_ingreso = st.number_input("Monto / Valor del Ingreso ($):", min_value=0.0, step=10.0, key="monto_ingreso_val")
+        monto_ingreso = st.number_input("Monto ($):", min_value=0.0, step=10.0, key="monto_ingreso_val")
     with col_i3:
         fecha_ingreso = st.date_input("Fecha de Ingreso:", value=date.today())
 
@@ -271,10 +344,8 @@ with tab_reg_ingreso:
         if fuente_ingreso.strip() == "" or monto_ingreso <= 0:
             st.error("Ingresa una fuente válida y un monto mayor a $0.00")
         else:
-            nuevo_id_ing = int(datetime.now().timestamp() * 1000)
             nuevo_ingreso = {
-                "id": nuevo_id_ing,
-                "Perfil": perfil_seleccionado,
+                "id": int(datetime.now().timestamp() * 1000),
                 "Ciclo_Mes": str(mes_ciclo),
                 "Año": str(anio_ciclo),
                 "Fuente": fuente_ingreso.strip(),
@@ -284,14 +355,14 @@ with tab_reg_ingreso:
             }
 
             st.session_state["datos_ingresos"].append(nuevo_ingreso)
-            guardar_datos_perfil(perfil_seleccionado, st.session_state["datos_gastos"], st.session_state["datos_ingresos"])
-            st.success(f"✅ ¡Ingreso de **${monto_ingreso:,.2f}** ('{fuente_ingreso}') guardado para {mes_ciclo} {anio_ciclo}!")
+            guardar_datos_usuario(st.session_state["usuario_actual"], st.session_state["datos_gastos"], st.session_state["datos_ingresos"], st.session_state["config_modulos"])
+            st.success(f"✅ ¡Ingreso de **${monto_ingreso:,.2f}** registrado!")
             st.rerun()
 
 st.markdown("---")
 
 # ---------------------------------------------------------
-# FILTRADO Y MÉTRICAS
+# RÉSUMEN Y BALANCE GENERAL
 # ---------------------------------------------------------
 st.subheader(f"📌 Resumen Financiero: {mes_ciclo} {anio_ciclo}")
 
@@ -308,243 +379,71 @@ ingresos_filtrados = [
 df_ingresos = pd.DataFrame(ingresos_filtrados)
 
 total_ingresos_mes = df_ingresos["Monto"].sum() if not df_ingresos.empty else 0.0
-
-if not df_gastos.empty:
-    cols_requeridas = {
-        "Descripcion": "", "Medio_Pago": "", "Periodo_Asignado": "Periodo 19 al 18 (Diners)",
-        "Subtotal": 0.0, "IVA_15": 0.0, "SOLCA_05": 0.0,
-        "Cuota_Actual": 1, "Cuota_Total": 1, "Cuota_Progreso": "1/1", "Monto_Cuota_Mensual": 0.0
-    }
-    for col, default_val in cols_requeridas.items():
-        if col not in df_gastos.columns:
-            df_gastos[col] = default_val
-
-    df_p19_18 = df_gastos[df_gastos["Periodo_Asignado"] == "Periodo 19 al 18 (Diners)"]
-    p19_diners = df_p19_18[df_p19_18["Medio_Pago"].str.contains("Diners", na=False)]["Monto_Cuota_Mensual"].sum() if not df_p19_18.empty else 0.0
-    p19_efectivo = df_p19_18[~df_p19_18["Medio_Pago"].str.contains("Diners", na=False)]["Monto_Cuota_Mensual"].sum() if not df_p19_18.empty else 0.0
-    total_p19_18 = p19_diners + p19_efectivo
-
-    df_p24_23 = df_gastos[df_gastos["Periodo_Asignado"] == "Periodo 24 al 23 (Pacificard)"]
-    p24_pacificard = df_p24_23[df_p24_23["Medio_Pago"].str.contains("Pacificard", na=False)]["Monto_Cuota_Mensual"].sum() if not df_p24_23.empty else 0.0
-    p24_efectivo = df_p24_23[~df_p24_23["Medio_Pago"].str.contains("Pacificard", na=False)]["Monto_Cuota_Mensual"].sum() if not df_p24_23.empty else 0.0
-    total_p24_23 = p24_pacificard + p24_efectivo
-
-    total_gastos_general = total_p19_18 + total_p24_23
-else:
-    df_p19_18 = pd.DataFrame()
-    df_p24_23 = pd.DataFrame()
-    total_p19_18 = 0.0
-    total_p24_23 = 0.0
-    total_gastos_general = 0.0
-
+total_gastos_general = df_gastos["Monto_Cuota_Mensual"].sum() if not df_gastos.empty else 0.0
 balance_neto = total_ingresos_mes - total_gastos_general
 
-# Métricas Principales
-col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+col_m1, col_m2, col_m3 = st.columns(3)
 with col_m1:
     st.metric("💵 TOTAL INGRESOS", f"${total_ingresos_mes:,.2f}")
 with col_m2:
     st.metric("💳 TOTAL GASTOS", f"${total_gastos_general:,.2f}")
 with col_m3:
     st.metric("⚖️ BALANCE NETO", f"${balance_neto:,.2f}")
-with col_m4:
-    if total_ingresos_mes > 0:
-        porcentaje_gasto = (total_gastos_general / total_ingresos_mes) * 100
-        st.metric("📉 % Compromiso Ingresos", f"{porcentaje_gasto:.1f}%")
-    else:
-        st.metric("📉 % Compromiso Ingresos", "N/A")
 
 st.markdown("---")
 
 # ---------------------------------------------------------
-# TABLAS DE VISUALIZACIÓN E HISTORIAL
+# TABLAS DE HISTORIAL
 # ---------------------------------------------------------
 cols_vis_gastos = ["Descripcion", "Medio_Pago", "Periodo_Asignado", "Cuota_Progreso", "Subtotal", "IVA_15", "SOLCA_05", "Monto_Cuota_Mensual"]
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "💵 Ingresos (Ciclo Actual)",
-    "📋 Gastos (Ciclo Actual)", 
-    "💳 Periodo 19 al 18 (Diners)", 
-    "💳 Periodo 24 al 23 (Pacificard)",
-    "🔄 Pagos Recurrentes / Efectivo",
-    "📚 Todo el Historial (Global)"
-])
+tab1, tab2, tab3 = st.tabs(["💵 Ingresos", "📋 Gastos Del Mes", "📚 Historial Global"])
 
 with tab1:
-    st.markdown(f"#### Total de Ingresos en {mes_ciclo} {anio_ciclo}: **${total_ingresos_mes:,.2f}**")
     if not df_ingresos.empty:
-        st.dataframe(df_ingresos[["Fuente", "Monto", "Fecha_Ingreso", "Fecha_Registro"]], use_container_width=True)
+        st.dataframe(df_ingresos[["Fuente", "Monto", "Fecha_Ingreso"]], use_container_width=True)
     else:
-        st.info(f"No hay ingresos registrados en el ciclo {mes_ciclo} {anio_ciclo}.")
+        st.info("Sin ingresos registrados en este ciclo.")
 
 with tab2:
     if not df_gastos.empty:
         st.dataframe(df_gastos[cols_vis_gastos], use_container_width=True)
     else:
-        st.info(f"No hay gastos registrados en el ciclo {mes_ciclo} {anio_ciclo}.")
+        st.info("Sin gastos registrados en este ciclo.")
 
 with tab3:
-    if not df_p19_18.empty:
-        st.dataframe(df_p19_18[cols_vis_gastos], use_container_width=True)
-    else:
-        st.info("No hay transacciones asociadas al periodo 19 al 18 en este ciclo.")
-
-with tab4:
-    if not df_p24_23.empty:
-        st.dataframe(df_p24_23[cols_vis_gastos], use_container_width=True)
-    else:
-        st.info("No hay transacciones asociadas al periodo 24 al 23 en este ciclo.")
-
-with tab5:
-    if not df_gastos.empty:
-        df_rec = df_gastos[df_gastos["Medio_Pago"].str.contains("Recurrente|Efectivo", na=False)]
-        if not df_rec.empty:
-            st.dataframe(df_rec[cols_vis_gastos], use_container_width=True)
-        else:
-            st.info("No hay pagos recurrentes o efectivo registrados en este ciclo.")
-    else:
-        st.info("Sin registros de gastos en este ciclo.")
-
-with tab6:
-    st.markdown("### 📜 Registros Históricos Acumulados")
     col_h1, col_h2 = st.columns(2)
     with col_h1:
-        st.markdown("**Todos los Ingresos:**")
+        st.write("**Historial de Ingresos:**")
         if st.session_state["datos_ingresos"]:
-            df_ing_global = pd.DataFrame(st.session_state["datos_ingresos"])
-            st.dataframe(df_ing_global[["Ciclo_Mes", "Año", "Fuente", "Monto", "Fecha_Ingreso"]], use_container_width=True)
-        else:
-            st.write("No hay ingresos en el historial.")
-
+            st.dataframe(pd.DataFrame(st.session_state["datos_ingresos"])[["Ciclo_Mes", "Año", "Fuente", "Monto"]], use_container_width=True)
     with col_h2:
-        st.markdown("**Todos los Gastos:**")
+        st.write("**Historial de Gastos:**")
         if st.session_state["datos_gastos"]:
-            df_gast_global = pd.DataFrame(st.session_state["datos_gastos"])
-            st.dataframe(df_gast_global[["Ciclo_Mes", "Año", "Descripcion", "Medio_Pago", "Monto_Cuota_Mensual"]], use_container_width=True)
-        else:
-            st.write("No hay gastos en el historial.")
+            st.dataframe(pd.DataFrame(st.session_state["datos_gastos"])[["Ciclo_Mes", "Año", "Descripcion", "Monto_Cuota_Mensual"]], use_container_width=True)
 
 st.markdown("---")
 
 # ---------------------------------------------------------
-# MÓDULO PARA EDITAR O ELIMINAR REGISTROS
+# EXPORTAR REPORTES (EXCEL Y PDF)
 # ---------------------------------------------------------
-st.subheader(f"⚙️ Modificar o Eliminar Registros — {perfil_seleccionado}")
-
-ver_todos = st.checkbox("🌐 Ver todos los meses del historial (desmarcado solo muestra el ciclo actual)")
-
-col_mod_g, col_mod_i = st.columns(2)
-
-with col_mod_g:
-    st.markdown("#### 🛍️ Editar / Borrar Gastos")
-    gastos_editables = list(enumerate(st.session_state["datos_gastos"])) if ver_todos else [
-        (idx, r) for idx, r in enumerate(st.session_state["datos_gastos"])
-        if str(r.get("Ciclo_Mes")) == str(mes_ciclo) and str(r.get("Año")) == str(anio_ciclo)
-    ]
-
-    if gastos_editables:
-        opciones_gasto = {
-            f"[{r.get('Ciclo_Mes')} {r.get('Año')}] {r.get('Descripcion')} | ${float(r.get('Monto_Cuota_Mensual', 0)):.2f}": idx
-            for idx, r in gastos_editables
-        }
-        sel_gasto = st.selectbox("Selecciona gasto:", list(opciones_gasto.keys()), key="sb_edit_gasto")
-        idx_gasto_real = opciones_gasto[sel_gasto]
-        item_g = st.session_state["datos_gastos"][idx_gasto_real]
-
-        with st.expander("✏️ Opciones de Modificación"):
-            edit_desc = st.text_input("Concepto / Local", value=item_g.get("Descripcion", ""), key="e_desc")
-            edit_monto = st.number_input("Monto Mensual ($)", min_value=0.01, value=float(item_g.get("Monto_Cuota_Mensual", 0.01)), step=0.5, key="e_monto")
-            
-            c_g1, c_g2 = st.columns(2)
-            with c_g1:
-                if st.button("💾 Guardar Cambios Gasto", key="btn_g_edit"):
-                    st.session_state["datos_gastos"][idx_gasto_real]["Descripcion"] = edit_desc
-                    st.session_state["datos_gastos"][idx_gasto_real]["Monto_Cuota_Mensual"] = round(edit_monto, 2)
-                    guardar_datos_perfil(perfil_seleccionado, st.session_state["datos_gastos"], st.session_state["datos_ingresos"])
-                    st.success("Gasto actualizado exitosamente.")
-                    st.rerun()
-            with c_g2:
-                if st.button("❌ Eliminar Gasto", type="primary", key="btn_g_del"):
-                    st.session_state["datos_gastos"].pop(idx_gasto_real)
-                    guardar_datos_perfil(perfil_seleccionado, st.session_state["datos_gastos"], st.session_state["datos_ingresos"])
-                    st.success("Gasto eliminado exitosamente.")
-                    st.rerun()
-    else:
-        st.info("No hay gastos disponibles para editar en la selección actual.")
-
-with col_mod_i:
-    st.markdown("#### 💵 Editar / Borrar Ingresos")
-    ingresos_editables = list(enumerate(st.session_state["datos_ingresos"])) if ver_todos else [
-        (idx, r) for idx, r in enumerate(st.session_state["datos_ingresos"])
-        if str(r.get("Ciclo_Mes")) == str(mes_ciclo) and str(r.get("Año")) == str(anio_ciclo)
-    ]
-
-    if ingresos_editables:
-        opciones_ingreso = {
-            f"[{r.get('Ciclo_Mes')} {r.get('Año')}] {r.get('Fuente')} | ${float(r.get('Monto', 0)):.2f}": idx
-            for idx, r in ingresos_editables
-        }
-        sel_ingreso = st.selectbox("Selecciona ingreso:", list(opciones_ingreso.keys()), key="sb_edit_ingreso")
-        idx_ing_real = opciones_ingreso[sel_ingreso]
-        item_i = st.session_state["datos_ingresos"][idx_ing_real]
-
-        with st.expander("✏️ Opciones de Modificación"):
-            edit_fuente = st.text_input("Fuente / Origen", value=item_i.get("Fuente", ""), key="e_fuente")
-            edit_monto_i = st.number_input("Monto ($)", min_value=0.01, value=float(item_i.get("Monto", 0.01)), step=1.0, key="e_monto_i")
-            
-            c_i1, c_i2 = st.columns(2)
-            with c_i1:
-                if st.button("💾 Guardar Cambios Ingreso", key="btn_i_edit"):
-                    st.session_state["datos_ingresos"][idx_ing_real]["Fuente"] = edit_fuente
-                    st.session_state["datos_ingresos"][idx_ing_real]["Monto"] = round(edit_monto_i, 2)
-                    guardar_datos_perfil(perfil_seleccionado, st.session_state["datos_gastos"], st.session_state["datos_ingresos"])
-                    st.success("Ingreso actualizado exitosamente.")
-                    st.rerun()
-            with c_i2:
-                if st.button("❌ Eliminar Ingreso", type="primary", key="btn_i_del"):
-                    st.session_state["datos_ingresos"].pop(idx_ing_real)
-                    guardar_datos_perfil(perfil_seleccionado, st.session_state["datos_gastos"], st.session_state["datos_ingresos"])
-                    st.success("Ingreso eliminado exitosamente.")
-                    st.rerun()
-    else:
-        st.info("No hay ingresos disponibles para editar en la selección actual.")
-
-st.markdown("---")
-
-# ---------------------------------------------------------
-# EXPORTACIÓN A EXCEL (CORREGIDO SIN ERRORES DE HOJAS VACÍAS) Y PDF
-# ---------------------------------------------------------
-st.subheader("📥 Exportar Reporte del Perfil")
-
+st.subheader("📥 Exportar Reporte")
 col_exp1, col_exp2 = st.columns(2)
 
 with col_exp1:
     output_excel = io.BytesIO()
     with pd.ExcelWriter(output_excel, engine="openpyxl") as writer:
-        # Pestaña fija que garantiza que la hoja NUNCA esté vacía
-        df_resumen = pd.DataFrame([{
-            "Perfil": perfil_seleccionado,
-            "Ciclo": mes_ciclo,
-            "Año": anio_ciclo,
-            "Total Ingresos": total_ingresos_mes,
-            "Total Gastos": total_gastos_general,
-            "Balance Neto": balance_neto
-        }])
+        df_resumen = pd.DataFrame([{"Usuario": nombre_usuario, "Ciclo": mes_ciclo, "Año": anio_ciclo, "Ingresos": total_ingresos_mes, "Gastos": total_gastos_general, "Balance": balance_neto}])
         df_resumen.to_excel(writer, sheet_name="Resumen", index=False)
-
         if not df_ingresos.empty:
             df_ingresos[["Fuente", "Monto", "Fecha_Ingreso"]].to_excel(writer, sheet_name="Ingresos", index=False)
         if not df_gastos.empty:
-            df_gastos[cols_vis_gastos].to_excel(writer, sheet_name="Consolidado_Gastos", index=False)
-        if not df_p19_18.empty:
-            df_p19_18[cols_vis_gastos].to_excel(writer, sheet_name="Periodo_19_18", index=False)
-        if not df_p24_23.empty:
-            df_p24_23[cols_vis_gastos].to_excel(writer, sheet_name="Periodo_24_23", index=False)
+            df_gastos[cols_vis_gastos].to_excel(writer, sheet_name="Gastos", index=False)
 
     st.download_button(
         label="🟢 Descargar Reporte Excel (.xlsx)",
         data=output_excel.getvalue(),
-        file_name=f"Reporte_{perfil_seleccionado}_{mes_ciclo.replace(' / ', '_')}_{anio_ciclo}.xlsx",
+        file_name=f"Reporte_{nombre_usuario}_{mes_ciclo.replace(' / ', '_')}_{anio_ciclo}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
@@ -552,60 +451,15 @@ with col_exp2:
     buffer_pdf = io.BytesIO()
     p = canvas.Canvas(buffer_pdf, pagesize=letter)
     p.setFont("Helvetica-Bold", 12)
-    p.drawString(50, 750, f"Reporte Financiero — {perfil_seleccionado} ({mes_ciclo} {anio_ciclo})")
+    p.drawString(50, 750, f"Reporte Financiero — {nombre_usuario} ({mes_ciclo} {anio_ciclo})")
     p.line(50, 740, 550, 740)
-
-    y = 715
     p.setFont("Helvetica-Bold", 10)
-    p.drawString(50, y, f"Total Ingresos: ${total_ingresos_mes:,.2f} | Total Gastos: ${total_gastos_general:,.2f} | Balance: ${balance_neto:,.2f}")
-    y -= 25
-
-    if not df_ingresos.empty:
-        p.setFont("Helvetica-Bold", 9)
-        p.drawString(50, y, "--- INGRESOS ---")
-        y -= 15
-        p.setFont("Helvetica-Bold", 8)
-        p.drawString(50, y, "Fuente")
-        p.drawString(250, y, "Fecha")
-        p.drawString(450, y, "Monto")
-        y -= 12
-
-        p.setFont("Helvetica", 8)
-        for _, row_i in df_ingresos.iterrows():
-            p.drawString(50, y, str(row_i['Fuente'])[:30])
-            p.drawString(250, y, str(row_i['Fecha_Ingreso']))
-            p.drawString(450, y, f"${row_i['Monto']:.2f}")
-            y -= 14
-
-    y -= 15
-    if not df_gastos.empty:
-        p.setFont("Helvetica-Bold", 9)
-        p.drawString(50, y, "--- GASTOS ---")
-        y -= 15
-        p.setFont("Helvetica-Bold", 8)
-        p.drawString(50, y, "Concepto")
-        p.drawString(200, y, "Medio Pago")
-        p.drawString(350, y, "Cuota")
-        p.drawString(450, y, "Monto Mensual")
-        y -= 12
-
-        p.setFont("Helvetica", 8)
-        for _, row in df_gastos.iterrows():
-            p.drawString(50, y, str(row['Descripcion'])[:24])
-            p.drawString(200, y, str(row['Medio_Pago'])[:22])
-            p.drawString(350, y, str(row['Cuota_Progreso']))
-            p.drawString(450, y, f"${row['Monto_Cuota_Mensual']:.2f}")
-            y -= 14
-
-            if y < 60:
-                p.showPage()
-                y = 750
-
+    p.drawString(50, 715, f"Ingresos: ${total_ingresos_mes:,.2f} | Gastos: ${total_gastos_general:,.2f} | Balance: ${balance_neto:,.2f}")
     p.save()
 
     st.download_button(
         label="🔴 Descargar Reporte PDF (.pdf)",
         data=buffer_pdf.getvalue(),
-        file_name=f"Reporte_{perfil_seleccionado}_{mes_ciclo.replace(' / ', '_')}_{anio_ciclo}.pdf",
+        file_name=f"Reporte_{nombre_usuario}_{mes_ciclo.replace(' / ', '_')}_{anio_ciclo}.pdf",
         mime="application/pdf"
     )
