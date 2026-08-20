@@ -1,23 +1,24 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import json
 import os
 import io
 from datetime import datetime, date
-from dateutil.relativedelta import relativedelta
+from jinja2 import Template
 
 # Importación de ReportLab para exportar a PDF
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
 st.set_page_config(
-    page_title="Control Financiero Personal",
+    page_title="Control Financiero Personal — FinanzaPro",
     page_icon="💰",
     layout="wide"
 )
 
 # ---------------------------------------------------------
-# FUNCIONES DE AUTENTICACIÓN Y BASE DE DATOS LOCAL
+# FUNCIONES DE AUTENTICACIÓN Y BASE DE DATOS LOCAL (JSON)
 # ---------------------------------------------------------
 ARCH_USUARIOS = "usuarios_db.json"
 
@@ -78,16 +79,17 @@ if "usuario_actual" not in st.session_state:
 # ---------------------------------------------------------
 if not st.session_state["autenticado"]:
     st.title("🔐 Acceso al Sistema de Control Financiero")
-    st.markdown("Bienvenido. Por favor inicia sesión o crea una cuenta para continuar.")
+    st.markdown("Bienvenido a **FinanzaPro**. Inicia sesión o crea una cuenta para continuar.")
 
     tab_login, tab_registro = st.tabs(["🔑 Iniciar Sesión", "📝 Crear Cuenta"])
     usuarios = cargar_usuarios()
 
     with tab_login:
         st.subheader("Ingresa con tus credenciales")
-        login_correo = st.text_input("Correo Electrónico:", key="login_email").lower().strip()
-        login_pass = st.text_input("Contraseña:", type="password", key="login_pass")
-        btn_login = st.button("Iniciar Sesión", type="primary")
+        with st.form("form_login", clear_on_submit=False):
+            login_correo = st.text_input("Correo Electrónico:", key="login_email").lower().strip()
+            login_pass = st.text_input("Contraseña:", type="password", key="login_pass")
+            btn_login = st.form_submit_button("Iniciar Sesión", type="primary")
 
         if btn_login:
             if login_correo in usuarios and usuarios[login_correo]["password"] == login_pass:
@@ -105,11 +107,12 @@ if not st.session_state["autenticado"]:
 
     with tab_registro:
         st.subheader("Regístrate como nuevo usuario")
-        reg_nombre = st.text_input("Nombre y Apellido:", key="reg_nombre")
-        reg_correo = st.text_input("Correo Electrónico:", key="reg_email").lower().strip()
-        reg_pass = st.text_input("Contraseña:", type="password", key="reg_pass")
-        reg_pass_conf = st.text_input("Confirmar Contraseña:", type="password", key="reg_pass_conf")
-        btn_registro = st.button("Crear Cuenta")
+        with st.form("form_registro", clear_on_submit=False):
+            reg_nombre = st.text_input("Nombre y Apellido:", key="reg_nombre")
+            reg_correo = st.text_input("Correo Electrónico:", key="reg_email").lower().strip()
+            reg_pass = st.text_input("Contraseña:", type="password", key="reg_pass")
+            reg_pass_conf = st.text_input("Confirmar Contraseña:", type="password", key="reg_pass_conf")
+            btn_registro = st.form_submit_button("Crear Cuenta", type="primary")
 
         if btn_registro:
             if not reg_nombre.strip() or not reg_correo.strip() or not reg_pass:
@@ -136,7 +139,7 @@ if not st.session_state["autenticado"]:
     st.stop()
 
 # ---------------------------------------------------------
-# PÁGINA 2: CONFIGURACIÓN DE TARJETAS Y MÓDULOS
+# PÁGINA 2: CONFIGURACIÓN INICIAL DE TARJETAS Y MÓDULOS
 # ---------------------------------------------------------
 usuarios = cargar_usuarios()
 nombre_usuario = usuarios.get(st.session_state["usuario_actual"], {}).get("nombre", "Usuario")
@@ -159,7 +162,7 @@ if not st.session_state.get("config_modulos"):
     tarjetas_config = []
     if mod_credito:
         st.markdown("---")
-        st.subheader("💳 Registro de Tarjetas de Crédito (Cortes y Fechas)")
+        st.subheader("💳 Registro de Tarjetas de Crédito (Fechas de Corte y Pago)")
         num_tarjetas = st.number_input("¿Cuántas tarjetas de crédito posees?", min_value=1, max_value=10, value=2)
         
         for i in range(int(num_tarjetas)):
@@ -174,11 +177,11 @@ if not st.session_state.get("config_modulos"):
             
             tarjetas_config.append({
                 "nombre": t_nombre,
-                "dia_corte": t_corte,
-                "dia_pago": t_pago
+                "dia_corte": int(t_corte),
+                "dia_pago": int(t_pago)
             })
 
-    btn_guardar_config = st.button("🚀 Configurar Perfil", type="primary")
+    btn_guardar_config = st.button("🚀 Guardar Perfil y Continuar", type="primary")
 
     if btn_guardar_config:
         seleccionados = []
@@ -207,12 +210,12 @@ if not st.session_state.get("config_modulos"):
     st.stop()
 
 # ---------------------------------------------------------
-# PÁGINA 3: PANEL PRINCIPAL FINANCIERO
+# PÁGINA 3: PANEL PRINCIPAL (FORMULARIO + PLANTILLA STITCH)
 # ---------------------------------------------------------
 st.sidebar.title(f"👤 {nombre_usuario}")
 st.sidebar.caption(f"📧 {st.session_state['usuario_actual']}")
 
-if st.sidebar.button("⚙️ Reconfigurar Módulos/Tarjetas"):
+if st.sidebar.button("⚙️ Reconfigurar Perfil"):
     st.session_state["config_modulos"] = []
     st.rerun()
 
@@ -222,142 +225,159 @@ if st.sidebar.button("🚪 Cerrar Sesión"):
     st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("**Tarjetas Registradas:**")
-for t in st.session_state.get("tarjetas", []):
-    st.sidebar.write(f"💳 {t['nombre']} (Corte: {t['dia_corte']})")
-
-st.title("📊 Control Financiero Personal")
+st.sidebar.subheader("📅 Período de Visualización")
+mes_seleccionado = st.sidebar.selectbox("Seleccionar Mes:", range(1, 13), index=datetime.now().month - 1, format_func=lambda x: date(2000, x, 1).strftime('%B').capitalize())
+anio_seleccionado = st.sidebar.number_input("Año:", min_value=2024, max_value=2040, value=datetime.now().year)
 
 # ---------------------------------------------------------
-# FILTROS DE FECHA Y NAVEGACIÓN
+# FORMULARIOS PARA REGISTRAR GASTOS / INGRESOS
 # ---------------------------------------------------------
-col_f1, col_f2 = st.columns(2)
-with col_f1:
-    mes_seleccionado = st.selectbox("📅 Seleccionar Mes:", range(1, 13), index=datetime.now().month - 1, format_func=lambda x: date(2000, x, 1).strftime('%B').capitalize())
-with col_f2:
-    anio_seleccionado = st.number_input("📆 Año:", min_value=2024, max_value=2040, value=datetime.now().year)
+with st.sidebar.expander("➕ Registrar Consumo / Ingreso", expanded=False):
+    tab_gasto, tab_ingreso = st.tabs(["🛍️ Gasto", "💵 Ingreso"])
 
-# ---------------------------------------------------------
-# FORMULARIO DE REGISTRO
-# ---------------------------------------------------------
-tab_reg_gasto, tab_reg_ingreso = st.tabs(["🛍️ Registrar Consumo / Diferido", "💵 Registrar Ingreso"])
+    with tab_gasto:
+        opciones_pago = []
+        if "Tarjetas de Crédito" in st.session_state["config_modulos"]:
+            for t in st.session_state.get("tarjetas", []):
+                opciones_pago.append(f"💳 Crédito: {t['nombre']}")
+        if "Tarjetas de Débito" in st.session_state["config_modulos"]:
+            opciones_pago.append("🏦 Tarjeta de Débito")
+        if "Pagos en Efectivo" in st.session_state["config_modulos"]:
+            opciones_pago.append("💵 Efectivo")
+        if "Transferencias" in st.session_state["config_modulos"]:
+            opciones_pago.append("🔄 Transferencia Bancaria")
 
-with tab_reg_gasto:
-    st.subheader("📝 Registrar Consumo o Diferido")
-    col_r1, col_r2, col_r3 = st.columns(3)
-
-    opciones_pago = []
-    if "Tarjetas de Crédito" in st.session_state["config_modulos"]:
-        for t in st.session_state.get("tarjetas", []):
-            opciones_pago.append(f"💳 Crédito: {t['nombre']}")
-    if "Tarjetas de Débito" in st.session_state["config_modulos"]:
-        opciones_pago.append("🏦 Tarjeta de Débito")
-    if "Pagos en Efectivo" in st.session_state["config_modulos"]:
-        opciones_pago.append("💵 Efectivo")
-    if "Transferencias" in st.session_state["config_modulos"]:
-        opciones_pago.append("🔄 Transferencia Bancaria")
-
-    with col_r1:
-        descripcion = st.text_input("Establecimiento / Concepto:", placeholder="Ej. Casa, Vacaciones, Supermercado")
-        monto_base = st.number_input("Monto Base Total ($):", min_value=0.0, step=100.0)
-        medio_pago = st.selectbox("Medio de Pago:", opciones_pago if opciones_pago else ["Efectivo"])
-
-    with col_r2:
-        es_credito = "💳 Crédito:" in medio_pago
-        es_recurrente = st.checkbox("🔄 ¿Es un Pago Recurrente Fijo? (Mes a Mes)")
+        desc_gasto = st.text_input("Concepto / Local:", placeholder="Ej. Casa, Vacaciones")
+        monto_gasto = st.number_input("Monto Total ($):", min_value=0.0, step=10.0)
+        medio_gasto = st.selectbox("Medio de Pago:", opciones_pago if opciones_pago else ["Efectivo"])
         
+        es_credito = "💳 Crédito:" in medio_gasto
+        es_recurrente = st.checkbox("🔄 Pago Recurrente Fijo")
+
         if es_credito and not es_recurrente:
-            cuota_total = st.number_input("Número Total de Cuotas:", min_value=1, max_value=120, value=12)
-            cuota_inicial = st.number_input("Cuota Actual al Registrar:", min_value=1, max_value=cuota_total, value=1)
+            cuotas_totales = st.number_input("Número Total de Cuotas:", min_value=1, max_value=120, value=12)
+            cuota_inicial = st.number_input("Cuota Actual al Registrar:", min_value=1, max_value=cuotas_totales, value=1)
         else:
-            cuota_total = 1
+            cuotas_totales = 1
             cuota_inicial = 1
 
-    with col_r3:
-        fecha_inicio_gasto = st.date_input("Fecha de Primera Cuota / Consumo:", value=date.today())
-        incluye_iva = st.radio("Manejo de IVA:", ["Sin IVA", "Ya incluye IVA", "+15% IVA"])
-
-    btn_guardar_gasto = st.button("💾 Guardar Consumo", type="primary")
-
-    if btn_guardar_gasto:
-        if not descripcion.strip() or monto_base <= 0:
-            st.error("Ingresa un concepto y monto válidos.")
-        else:
-            if incluye_iva == "+15% IVA":
-                monto_final = monto_base * 1.15
+        fecha_inicio_gasto = st.date_input("Fecha Inicio:", value=date.today())
+        
+        if st.button("💾 Guardar Consumo", type="primary"):
+            if not desc_gasto.strip() or monto_gasto <= 0:
+                st.error("Campos inválidos.")
             else:
-                monto_final = monto_base
+                monto_cuota_calc = monto_gasto if es_recurrente else (monto_gasto / cuotas_totales)
+                nuevo_gasto = {
+                    "id": int(datetime.now().timestamp() * 1000),
+                    "descripcion": desc_gasto.strip(),
+                    "monto_total_base": monto_gasto,
+                    "monto_cuota": round(monto_cuota_calc, 2),
+                    "medio_pago": medio_gasto,
+                    "es_recurrente": es_recurrente,
+                    "cuota_inicial": cuota_inicial,
+                    "cuota_total": cuotas_totales,
+                    "fecha_inicio": fecha_inicio_gasto.strftime("%Y-%m-%d")
+                }
+                st.session_state["datos_gastos"].append(nuevo_gasto)
+                guardar_datos_usuario(
+                    st.session_state["usuario_actual"],
+                    st.session_state["datos_gastos"],
+                    st.session_state["datos_ingresos"],
+                    st.session_state["config_modulos"],
+                    st.session_state["tarjetas"]
+                )
+                st.success("¡Gasto registrado!")
+                st.rerun()
 
-            monto_cuota_calculado = monto_final if es_recurrente else (monto_final / cuota_total)
-
-            nuevo_gasto = {
-                "id": int(datetime.now().timestamp() * 1000),
-                "descripcion": descripcion.strip(),
-                "monto_total_base": monto_final,
-                "monto_cuota": round(monto_cuota_calculado, 2),
-                "medio_pago": medio_pago,
-                "es_recurrente": es_recurrente,
-                "cuota_inicial": cuota_inicial,
-                "cuota_total": cuota_total,
-                "fecha_inicio": fecha_inicio_gasto.strftime("%Y-%m-%d")
-            }
-
-            st.session_state["datos_gastos"].append(nuevo_gasto)
-            guardar_datos_usuario(
-                st.session_state["usuario_actual"],
-                st.session_state["datos_gastos"],
-                st.session_state["datos_ingresos"],
-                st.session_state["config_modulos"],
-                st.session_state["tarjetas"]
-            )
-            st.success("✅ ¡Consumo guardado exitosamente!")
-            st.rerun()
+    with tab_ingreso:
+        fuente_ingreso = st.text_input("Fuente:", placeholder="Ej. Sueldo, Freelance")
+        monto_ingreso = st.number_input("Monto ($):", min_value=0.0, step=100.0)
+        
+        if st.button("💾 Guardar Ingreso"):
+            if not fuente_ingreso.strip() or monto_ingreso <= 0:
+                st.error("Campos inválidos.")
+            else:
+                nuevo_ingreso = {
+                    "id": int(datetime.now().timestamp() * 1000),
+                    "Ciclo_Mes": str(mes_seleccionado),
+                    "Año": str(anio_seleccionado),
+                    "Fuente": fuente_ingreso.strip(),
+                    "Monto": round(monto_ingreso, 2)
+                }
+                st.session_state["datos_ingresos"].append(nuevo_ingreso)
+                guardar_datos_usuario(
+                    st.session_state["usuario_actual"],
+                    st.session_state["datos_gastos"],
+                    st.session_state["datos_ingresos"],
+                    st.session_state["config_modulos"],
+                    st.session_state["tarjetas"]
+                )
+                st.success("¡Ingreso registrado!")
+                st.rerun()
 
 # ---------------------------------------------------------
-# LÓGICA DE PROYECCIÓN DE GASTOS PARA EL MES SELECCIONADO
+# PROCESAMIENTO Y RENDERIZADO DE LA PLANTILLA STITCH (INDEX.HTML)
 # ---------------------------------------------------------
-gastos_proyectados = []
+def RENDERIZAR_FINANZA_PRO():
+    # 1. Calcular Ingresos del Mes Seleccionado
+    total_ingresos = sum(
+        i["Monto"] for i in st.session_state["datos_ingresos"]
+        if str(i.get("Ciclo_Mes")) == str(mes_seleccionado) and str(i.get("Año")) == str(anio_seleccionado)
+    )
 
-for g in st.session_state["datos_gastos"]:
-    f_inicio = datetime.strptime(g["fecha_inicio"], "%Y-%m-%d").date()
-    
-    # 1. Manejo de Pagos Recurrentes Fijos
-    if g["es_recurrente"]:
-        if date(anio_seleccionado, mes_seleccionado, 1) >= date(f_inicio.year, f_inicio.month, 1):
-            gastos_proyectados.append({
-                "Concepto": g["descripcion"],
-                "Medio de Pago": g["medio_pago"],
-                "Cuota Progreso": "Recurrente",
-                "Monto a Pagar": g["monto_cuota"],
-                "Monto Total Base": g["monto_total_base"]
-            })
-    # 2. Manejo de Diferidos por Cuotas
+    # 2. Proyección de Cuotas Diferidas y Recurrentes
+    gastos_proyectados = []
+    total_gastos = 0.0
+
+    for g in st.session_state["datos_gastos"]:
+        f_inicio = datetime.strptime(g["fecha_inicio"], "%Y-%m-%d").date()
+        
+        if g.get("es_recurrente", False):
+            if date(anio_seleccionado, mes_seleccionado, 1) >= date(f_inicio.year, f_inicio.month, 1):
+                gastos_proyectados.append({
+                    "Concepto": g["descripcion"],
+                    "Medio de Pago": g["medio_pago"],
+                    "Cuota Progreso": "Recurrente",
+                    "Monto a Pagar": g["monto_cuota"]
+                })
+                total_gastos += g["monto_cuota"]
+        else:
+            meses_diff = (anio_seleccionado - f_inicio.year) * 12 + (mes_seleccionado - f_inicio.month)
+            cuota_actual = g.get("cuota_inicial", 1) + meses_diff
+
+            if 1 <= cuota_actual <= g.get("cuota_total", 1):
+                gastos_proyectados.append({
+                    "Concepto": g["descripcion"],
+                    "Medio de Pago": g["medio_pago"],
+                    "Cuota Progreso": f"Cuota {cuota_actual} de {g['cuota_total']}",
+                    "Monto a Pagar": g["monto_cuota"]
+                })
+                total_gastos += g["monto_cuota"]
+
+    balance_neto = total_ingresos - total_gastos
+    nombre_mes = date(2000, mes_seleccionado, 1).strftime('%B').capitalize()
+
+    # 3. Cargar y Renderizar Plantilla HTML de Stitch
+    if os.path.exists("index.html"):
+        with open("index.html", "r", encoding="utf-8") as f:
+            plantilla = Template(f.read())
+        
+        html_final = plantilla.render(
+            usuario=nombre_usuario,
+            mes_nombre=nombre_mes,
+            anio=anio_seleccionado,
+            total_ingresos=total_ingresos,
+            total_gastos=total_gastos,
+            balance_neto=balance_neto,
+            num_tarjetas=len(st.session_state.get("tarjetas", [])),
+            gastos=gastos_proyectados,
+            tarjetas=st.session_state.get("tarjetas", [])
+        )
+
+        components.html(html_final, height=880, scrolling=True)
     else:
-        # Calcular meses transcurridos desde la fecha de inicio
-        meses_diferencia = (anio_seleccionado - f_inicio.year) * 12 + (mes_seleccionado - f_inicio.month)
-        cuota_actual_calculada = g["cuota_inicial"] + meses_diferencia
+        st.error("El archivo 'index.html' no se encuentra en el repositorio.")
 
-        # Verificar si la cuota cae dentro del rango válido (entre 1 y cuota_total)
-        if 1 <= cuota_actual_calculada <= g["cuota_total"]:
-            gastos_proyectados.append({
-                "Concepto": g["descripcion"],
-                "Medio de Pago": g["medio_pago"],
-                "Cuota Progreso": f"Cuota {cuota_actual_calculada} de {g['cuota_total']}",
-                "Monto a Pagar": g["monto_cuota"],
-                "Monto Total Base": g["monto_total_base"]
-            })
-
-df_gastos_mes = pd.DataFrame(gastos_proyectados)
-
-# ---------------------------------------------------------
-# MOSTRAR RESULTADOS
-# ---------------------------------------------------------
-st.markdown("---")
-st.subheader(f"📋 Resumen de Obligaciones: {date(2000, mes_seleccionado, 1).strftime('%B')} {anio_seleccionado}")
-
-if not df_gastos_mes.empty:
-    st.dataframe(df_gastos_mes, use_container_width=True)
-    total_mes = df_gastos_mes["Monto a Pagar"].sum()
-    st.metric("💳 Total a Pagar en este Mes:", f"${total_mes:,.2f}")
-else:
-    st.info("No hay obligaciones ni cuotas pendientes para este mes.")
+# Ejecutar el renderizado de la interfaz principal
+RENDERIZAR_FINANZA_PRO()
