@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>Panel Principal - FinanzaPro</title>
+    <!-- Google Material Symbols -->
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#0d1c32",
+                        "secondary": "#0050cc",
+                        "background": "#fbf9fb",
+                        "surface": "#ffffff"
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #F8FAFC; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 20px; }
+    </style>
+</head>
+<body class="bg-[#F8FAFC] text-gray-900 min-h-screen flex flex-col font-sans">
+
+<!-- Barra de Navegación Superior -->
+<nav class="bg-white border-b border-gray-200 z-50 sticky top-0 shadow-sm">
+    <div class="flex justify-between items-center px-6 h-16 w-full max-w-7xl mx-auto">
+        <div class="flex items-center gap-4">
+            <span class="text-2xl font-bold text-[#0d1c32]">FinanzaPro</span>
+            <span class="text-xs bg-blue-50 text-blue-700 px-3 py-1 rounded-full font-semibold border border-blue-200">
+                Ciclo: {{ mes_nombre }} {{ anio }}
+            </span>
+        </div>
+        <div class="flex items-center gap-4">
+            <span class="text-sm font-semibold text-gray-700">👤 {{ usuario }}</span>
+        </div>
+    </div>
+</nav>
+
+<!-- Contenido Principal -->
+<main class="flex-grow w-full max-w-7xl mx-auto px-6 py-6">
+    <!-- Encabezado -->
+    <div class="mb-6">
+        <h1 class="text-3xl font-bold text-gray-900">Resumen General</h1>
+        <p class="text-gray-500 text-sm mt-1">Monitorea tus finanzas, control de cuotas diferidas y balance mensual.</p>
+    </div>
+
+    <!-- Grid de Métricas Clave (KPIs) -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <!-- KPI 1: Ingresos -->
+        <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-200 flex flex-col justify-between">
+            <div class="flex justify-between items-start mb-2">
+                <span class="text-gray-500 text-sm font-medium">Ingresos del Mes</span>
+                <div class="p-2 bg-emerald-50 rounded-lg text-emerald-600">
+                    <span class="material-symbols-outlined text-[20px]">trending_up</span>
+                </div>
+            </div>
+            <div>
+                <h2 class="text-2xl font-bold text-gray-900">${{ "%.2f"|format(total_ingresos) }}</h2>
+                <div class="flex items-center gap-1 mt-1 text-emerald-600 text-xs font-semibold">
+                    <span class="material-symbols-outlined text-[16px]">arrow_upward</span>
+                    <span>Total disponible</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- KPI 2: Gastos Totales -->
+        <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-200 flex flex-col justify-between">
+            <div class="flex justify-between items-start mb-2">
+                <span class="text-gray-500 text-sm font-medium">Gastos Totales (Mes)</span>
+                <div class="p-2 bg-rose-50 rounded-lg text-rose-600">
+                    <span class="material-symbols-outlined text-[20px]">trending_down</span>
+                </div>
+            </div>
+            <div>
+                <h2 class="text-2xl font-bold text-gray-900">${{ "%.2f"|format(total_gastos) }}</h2>
+                <div class="flex items-center gap-1 mt-1 text-rose-600 text-xs font-semibold">
+                    <span class="material-symbols-outlined text-[16px]">arrow_downward</span>
+                    <span>Cuotas y consumos</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- KPI 3: Balance Neto -->
+        <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-200 flex flex-col justify-between">
+            <div class="flex justify-between items-start mb-2">
+                <span class="text-gray-500 text-sm font-medium">Balance Neto</span>
+                <div class="p-2 bg-blue-50 rounded-lg text-blue-600">
+                    <span class="material-symbols-outlined text-[20px]">account_balance_wallet</span>
+                </div>
+            </div>
+            <div>
+                <h2 class="text-2xl font-bold {% if balance_neto >= 0 %}text-emerald-600{% else %}text-rose-600{% endif %}">
+                    ${{ "%.2f"|format(balance_neto) }}
+                </h2>
+                <p class="text-xs text-gray-400 mt-1">Ingresos − Gastos</p>
+            </div>
+        </div>
+
+        <!-- KPI 4: Tarjetas Registradas -->
+        <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-200 flex flex-col justify-between">
+            <div class="flex justify-between items-start mb-2">
+                <span class="text-gray-500 text-sm font-medium">Tarjetas Activas</span>
+                <div class="p-2 bg-gray-100 rounded-lg text-gray-700">
+                    <span class="material-symbols-outlined text-[20px]">credit_card</span>
+                </div>
+            </div>
+            <div>
+                <h2 class="text-2xl font-bold text-gray-900">{{ num_tarjetas }}</h2>
+                <span class="text-blue-600 text-xs font-semibold mt-1 block">Métodos configurados</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Disposición de 2 Columnas (70% / 30%) -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <!-- Columna Izquierda (70%) -->
+        <div class="lg:col-span-8 flex flex-col gap-6">
+            <!-- Tabla de Movimientos y Diferidos -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div class="flex justify-between items-center p-5 border-b border-gray-200">
+                    <h3 class="text-lg font-bold text-gray-900">Movimientos y Diferidos del Mes</h3>
+                </div>
+                <div class="overflow-x-auto custom-scrollbar">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-gray-50 text-gray-500 text-xs font-semibold uppercase tracking-wider border-b border-gray-200">
+                                <th class="py-3 px-5">Concepto</th>
+                                <th class="py-3 px-5">Medio de Pago</th>
+                                <th class="py-3 px-5">Cuotas / Estado</th>
+                                <th class="py-3 px-5 text-right">Monto a Pagar</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-sm text-gray-800 divide-y divide-gray-200">
+                            {% if gastos|length > 0 %}
+                                {% for g in gastos %}
+                                <tr class="hover:bg-gray-50 transition-colors">
+                                    <td class="py-4 px-5 font-medium text-gray-900">{{ g.Concepto }}</td>
+                                    <td class="py-4 px-5 text-gray-600">{{ g['Medio de Pago'] }}</td>
+                                    <td class="py-4 px-5">
+                                        <span class="bg-blue-50 text-blue-700 px-2.5 py-1 rounded-md text-xs font-semibold border border-blue-200">
+                                            {{ g['Cuota Progreso'] }}
+                                        </span>
+                                    </td>
+                                    <td class="py-4 px-5 text-right font-semibold font-mono text-gray-900">
+                                        -${{ "%.2f"|format(g['Monto a Pagar']) }}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr>
+                                    <td colspan="4" class="py-8 text-center text-gray-400 font-medium">
+                                        No hay consumos o cuotas registradas para este período.
+                                    </td>
+                                </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Columna Derecha (30%) -->
+        <div class="lg:col-span-4 flex flex-col gap-6">
+            <!-- Gestión de Tarjetas -->
+            <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-200">
+                <h3 class="text-lg font-bold text-gray-900 border-b border-gray-200 pb-3 mb-4">Gestión de Tarjetas</h3>
+                
+                {% if tarjetas|length > 0 %}
+                    {% for t in tarjetas %}
+                    <div class="relative w-full rounded-xl overflow-hidden shadow-md mb-4 p-5 text-white bg-gradient-to-br from-[#0A192F] to-[#1e3a68]">
+                        <div class="flex justify-between items-start">
+                            <span class="font-bold tracking-wider text-sm">FinanzaPro</span>
+                            <span class="material-symbols-outlined opacity-80">contactless</span>
+                        </div>
+                        <div class="mt-6">
+                            <div class="font-mono text-sm tracking-widest mb-2 font-semibold">{{ t.nombre }}</div>
+                            <div class="flex justify-between items-end text-xs text-gray-300 border-t border-white/10 pt-2">
+                                <span>Corte: Día {{ t.dia_corte }}</span>
+                                <span>Límite Pago: Día {{ t.dia_pago }}</span>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-sm text-gray-400">Sin tarjetas configuradas.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</main>
+
+<footer class="bg-white text-gray-500 text-xs py-4 border-t border-gray-200 mt-auto text-center">
+    © 2026 FinanzaPro. Todos los derechos reservados.
+</footer>
+
+</body>
+</html>
