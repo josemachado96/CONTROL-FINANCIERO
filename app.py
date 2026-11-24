@@ -4,6 +4,7 @@ import pandas as pd
 import json
 import os
 import io
+import base64
 from datetime import datetime, date
 from jinja2 import Template
 
@@ -12,10 +13,45 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
 st.set_page_config(
-    page_title="Control Financiero Personal — FinanzaPro",
-    page_icon="💰",
+    page_title="Control Financiero — Capuchino 🐱",
+    page_icon="🐱",
     layout="wide"
 )
+
+# ---------------------------------------------------------
+# IMÁGENES Y VOZ DE CAPUCHINO (.jpeg)
+# Busca en assets/ y en la raíz por si moviste los archivos
+# ---------------------------------------------------------
+ESTADOS_CAPUCHINO = {
+    "normal": ["assets/capu_normal.jpeg", "capu_normal.jpeg"],
+    "hablando": ["assets/capu_hablando.jpeg", "capu_hablando.jpeg"],
+    "alerta": ["assets/capu_alerta.jpeg", "capu_alerta.jpeg"],
+}
+
+def cargar_imagen_capuchino_b64(estado="normal"):
+    orden_estados = [estado, "normal", "hablando", "alerta"]
+    for est in orden_estados:
+        for ruta in ESTADOS_CAPUCHINO.get(est, []):
+            if os.path.exists(ruta):
+                with open(ruta, "rb") as f:
+                    return base64.b64encode(f.read()).decode("utf-8"), ruta
+    return "", None
+
+def capuchino_habla(texto):
+    texto_limpio = texto.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
+    js_code = f"""
+    <script>
+        if ("speechSynthesis" in window) {{
+            window.speechSynthesis.cancel();
+            const msg = new SpeechSynthesisUtterance("{texto_limpio}");
+            msg.lang = "es-EC";
+            msg.pitch = 1.2;
+            msg.rate = 1.0;
+            window.speechSynthesis.speak(msg);
+        }}
+    </script>
+    """
+    components.html(js_code, height=0)
 
 # ---------------------------------------------------------
 # FUNCIONES DE AUTENTICACIÓN Y BASE DE DATOS LOCAL (JSON)
@@ -36,7 +72,7 @@ def guardar_usuarios(usuarios):
         json.dump(usuarios, f, ensure_ascii=False, indent=4)
 
 def obtener_nombre_archivo_usuario(correo):
-    correo_limpio = "".join(c for c in correo if c.isalnum() or c in ('@', '.', '_')).replace('@', '_at_').replace('.', '_')
+    correo_limpio = "".join(c for c in correo if c.isalnum() or c in ("@", ".", "_")).replace("@", "_at_").replace(".", "_")
     return f"datos_user_{correo_limpio}.json"
 
 def cargar_datos_usuario(correo):
@@ -73,13 +109,15 @@ if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
 if "usuario_actual" not in st.session_state:
     st.session_state["usuario_actual"] = None
+if "estado_capuchino" not in st.session_state:
+    st.session_state["estado_capuchino"] = "normal"
 
 # ---------------------------------------------------------
 # PÁGINA 1: INICIO DE SESIÓN / REGISTRO
 # ---------------------------------------------------------
 if not st.session_state["autenticado"]:
-    st.title("🔐 Acceso al Sistema de Control Financiero")
-    st.markdown("Bienvenido a **FinanzaPro**. Inicia sesión o crea una cuenta para continuar.")
+    st.title("🐱 Acceso al Sistema de Control Financiero")
+    st.markdown("¡Miau! Inicia sesión o crea una cuenta para que **Capuchino** te ayude con tus finanzas.")
 
     tab_login, tab_registro = st.tabs(["🔑 Iniciar Sesión", "📝 Crear Cuenta"])
     usuarios = cargar_usuarios()
@@ -146,8 +184,8 @@ nombre_usuario = usuarios.get(st.session_state["usuario_actual"], {}).get("nombr
 
 if not st.session_state.get("config_modulos"):
     st.balloons()
-    st.title(f"👋 ¡Bienvenido, {nombre_usuario}!")
-    st.markdown("### 🛠️ Personaliza tus Tarjetas y Métodos de Pago")
+    st.title(f"🐱 ¡Bienvenido, {nombre_usuario}!")
+    st.markdown("### 🛠️ Personaliza tus Tarjetas y Métodos de Pago con Capuchino")
 
     col_chk1, col_chk2 = st.columns(2)
     with col_chk1:
@@ -164,17 +202,17 @@ if not st.session_state.get("config_modulos"):
         st.markdown("---")
         st.subheader("💳 Registro de Tarjetas de Crédito (Fechas de Corte y Pago)")
         num_tarjetas = st.number_input("¿Cuántas tarjetas de crédito posees?", min_value=1, max_value=10, value=2)
-        
+
         for i in range(int(num_tarjetas)):
             st.markdown(f"**Tarjeta #{i+1}**")
             c_t1, c_t2, c_t3 = st.columns(3)
             with c_t1:
-                t_nombre = st.text_input(f"Nombre / Banco:", value=f"Tarjeta {i+1}", key=f"t_name_{i}")
+                t_nombre = st.text_input("Nombre / Banco:", value=f"Tarjeta {i+1}", key=f"t_name_{i}")
             with c_t2:
-                t_corte = st.number_input(f"Día de Corte:", min_value=1, max_value=31, value=19, key=f"t_corte_{i}")
+                t_corte = st.number_input("Día de Corte:", min_value=1, max_value=31, value=19, key=f"t_corte_{i}")
             with c_t3:
-                t_pago = st.number_input(f"Día Límite de Pago:", min_value=1, max_value=31, value=10, key=f"t_pago_{i}")
-            
+                t_pago = st.number_input("Día Límite de Pago:", min_value=1, max_value=31, value=10, key=f"t_pago_{i}")
+
             tarjetas_config.append({
                 "nombre": t_nombre,
                 "dia_corte": int(t_corte),
@@ -210,7 +248,7 @@ if not st.session_state.get("config_modulos"):
     st.stop()
 
 # ---------------------------------------------------------
-# PÁGINA 3: PANEL PRINCIPAL (FORMULARIO + PLANTILLA STITCH)
+# PÁGINA 3: PANEL PRINCIPAL (BARRA LATERAL + CAPUCHINO + STITCH)
 # ---------------------------------------------------------
 st.sidebar.title(f"👤 {nombre_usuario}")
 st.sidebar.caption(f"📧 {st.session_state['usuario_actual']}")
@@ -225,8 +263,24 @@ if st.sidebar.button("🚪 Cerrar Sesión"):
     st.rerun()
 
 st.sidebar.markdown("---")
+
+# --- AVATAR DE CAPUCHINO EN SIDEBAR ---
+st.sidebar.subheader("🐱 Capuchino")
+estado_actual_capu = st.session_state.get("estado_capuchino", "normal")
+capu_b64_actual, ruta_capu_actual = cargar_imagen_capuchino_b64(estado_actual_capu)
+if ruta_capu_actual:
+    st.sidebar.image(ruta_capu_actual, caption=f"Estado: {estado_actual_capu}", use_container_width=True)
+else:
+    st.sidebar.caption("Sube `capu_normal.jpeg`, `capu_hablando.jpeg` y `capu_alerta.jpeg` en `assets/` o en la raíz.")
+
+st.sidebar.markdown("---")
 st.sidebar.subheader("📅 Período de Visualización")
-mes_seleccionado = st.sidebar.selectbox("Seleccionar Mes:", range(1, 13), index=datetime.now().month - 1, format_func=lambda x: date(2000, x, 1).strftime('%B').capitalize())
+mes_seleccionado = st.sidebar.selectbox(
+    "Seleccionar Mes:",
+    range(1, 13),
+    index=datetime.now().month - 1,
+    format_func=lambda x: date(2000, x, 1).strftime("%B").capitalize()
+)
 anio_seleccionado = st.sidebar.number_input("Año:", min_value=2024, max_value=2040, value=datetime.now().year)
 
 # ---------------------------------------------------------
@@ -246,37 +300,63 @@ with st.sidebar.expander("➕ Registrar Consumo / Ingreso", expanded=False):
             opciones_pago.append("💵 Efectivo")
         if "Transferencias" in st.session_state["config_modulos"]:
             opciones_pago.append("🔄 Transferencia Bancaria")
+        if "Pagos Recurrentes" in st.session_state["config_modulos"]:
+            opciones_pago.append("🔁 Pago Recurrente Fijo")
 
-        desc_gasto = st.text_input("Concepto / Local:", placeholder="Ej. Casa, Vacaciones")
-        monto_gasto = st.number_input("Monto Total ($):", min_value=0.0, step=10.0)
-        medio_gasto = st.selectbox("Medio de Pago:", opciones_pago if opciones_pago else ["Efectivo"])
-        
+        desc_gasto = st.text_input("Concepto / Local:", placeholder="Ej. Casa, Vacaciones", key="desc_gasto_in")
+        monto_gasto = st.number_input("Monto Total ($):", min_value=0.0, step=10.0, key="monto_gasto_in")
+        medio_gasto = st.selectbox("Medio de Pago:", opciones_pago if opciones_pago else ["💵 Efectivo"], key="medio_gasto_in")
+
         es_credito = "💳 Crédito:" in medio_gasto
-        es_recurrente = st.checkbox("🔄 Pago Recurrente Fijo")
+        es_recurrente = "Recurrente" in medio_gasto
 
         if es_credito and not es_recurrente:
-            cuotas_totales = st.number_input("Número Total de Cuotas:", min_value=1, max_value=120, value=12)
-            cuota_inicial = st.number_input("Cuota Actual al Registrar:", min_value=1, max_value=cuotas_totales, value=1)
+            cuotas_totales = st.number_input("Número Total de Cuotas:", min_value=1, max_value=120, value=12, key="cuotas_tot_in")
+            cuota_inicial = st.number_input("Cuota Actual al Registrar:", min_value=1, max_value=120, value=1, key="cuota_act_in")
+        elif es_recurrente:
+            cuotas_totales = st.number_input("Número Total de Cuotas/Meses:", min_value=1, max_value=120, value=40, key="cuotas_rec_tot_in")
+            cuota_inicial = st.number_input("Cuota / Mes Actual:", min_value=1, max_value=120, value=1, key="cuotas_rec_act_in")
         else:
             cuotas_totales = 1
             cuota_inicial = 1
 
-        fecha_inicio_gasto = st.date_input("Fecha Inicio:", value=date.today())
-        
-        if st.button("💾 Guardar Consumo", type="primary"):
+        incluye_iva = st.radio("Manejo de IVA:", ["Sin IVA / Exento", "Ya incluye IVA", "Sumar IVA (15%)"], key="iva_gasto_in")
+        aplica_solca = st.checkbox("Aplica 0.5% SOLCA", key="solca_gasto_in") if es_credito else False
+        fecha_inicio_gasto = st.date_input("Fecha Inicio:", value=date.today(), key="fecha_gasto_in")
+
+        if st.button("💾 Guardar Consumo", type="primary", key="btn_save_gasto"):
             if not desc_gasto.strip() or monto_gasto <= 0:
                 st.error("Campos inválidos.")
             else:
-                monto_cuota_calc = monto_gasto if es_recurrente else (monto_gasto / cuotas_totales)
+                if incluye_iva == "Sumar IVA (15%)":
+                    subtotal = monto_gasto
+                    iva = subtotal * 0.15
+                    monto_con_iva = subtotal + iva
+                elif incluye_iva == "Ya incluye IVA":
+                    subtotal = monto_gasto / 1.15
+                    iva = monto_gasto - subtotal
+                    monto_con_iva = monto_gasto
+                else:
+                    subtotal = monto_gasto
+                    iva = 0.0
+                    monto_con_iva = monto_gasto
+
+                monto_solca = (subtotal * 0.005) if aplica_solca else 0.0
+                monto_final = monto_con_iva + monto_solca
+                monto_cuota_calc = monto_final if (es_recurrente or not es_credito) else (monto_final / max(1, int(cuotas_totales)))
+
                 nuevo_gasto = {
                     "id": int(datetime.now().timestamp() * 1000),
                     "descripcion": desc_gasto.strip(),
                     "monto_total_base": monto_gasto,
+                    "subtotal": round(subtotal, 2),
+                    "iva_15": round(iva, 2),
+                    "solca_05": round(monto_solca, 2),
                     "monto_cuota": round(monto_cuota_calc, 2),
                     "medio_pago": medio_gasto,
                     "es_recurrente": es_recurrente,
-                    "cuota_inicial": cuota_inicial,
-                    "cuota_total": cuotas_totales,
+                    "cuota_inicial": int(cuota_inicial),
+                    "cuota_total": int(cuotas_totales),
                     "fecha_inicio": fecha_inicio_gasto.strftime("%Y-%m-%d")
                 }
                 st.session_state["datos_gastos"].append(nuevo_gasto)
@@ -287,14 +367,15 @@ with st.sidebar.expander("➕ Registrar Consumo / Ingreso", expanded=False):
                     st.session_state["config_modulos"],
                     st.session_state["tarjetas"]
                 )
+                st.session_state["estado_capuchino"] = "normal"
                 st.success("¡Gasto registrado!")
                 st.rerun()
 
     with tab_ingreso:
-        fuente_ingreso = st.text_input("Fuente:", placeholder="Ej. Sueldo, Freelance")
-        monto_ingreso = st.number_input("Monto ($):", min_value=0.0, step=100.0)
-        
-        if st.button("💾 Guardar Ingreso"):
+        fuente_ingreso = st.text_input("Fuente:", placeholder="Ej. Sueldo, Freelance", key="fuente_ing_in")
+        monto_ingreso = st.number_input("Monto ($):", min_value=0.0, step=100.0, key="monto_ing_in")
+
+        if st.button("💾 Guardar Ingreso", key="btn_save_ingreso"):
             if not fuente_ingreso.strip() or monto_ingreso <= 0:
                 st.error("Campos inválidos.")
             else:
@@ -313,6 +394,7 @@ with st.sidebar.expander("➕ Registrar Consumo / Ingreso", expanded=False):
                     st.session_state["config_modulos"],
                     st.session_state["tarjetas"]
                 )
+                st.session_state["estado_capuchino"] = "normal"
                 st.success("¡Ingreso registrado!")
                 st.rerun()
 
@@ -320,25 +402,25 @@ with st.sidebar.expander("➕ Registrar Consumo / Ingreso", expanded=False):
 # PROCESAMIENTO Y RENDERIZADO DE LA PLANTILLA STITCH (INDEX.HTML)
 # ---------------------------------------------------------
 def RENDERIZAR_FINANZA_PRO():
-    # 1. Calcular Ingresos del Mes Seleccionado
     total_ingresos = sum(
         i["Monto"] for i in st.session_state["datos_ingresos"]
         if str(i.get("Ciclo_Mes")) == str(mes_seleccionado) and str(i.get("Año")) == str(anio_seleccionado)
     )
 
-    # 2. Proyección de Cuotas Diferidas y Recurrentes
     gastos_proyectados = []
     total_gastos = 0.0
 
     for g in st.session_state["datos_gastos"]:
         f_inicio = datetime.strptime(g["fecha_inicio"], "%Y-%m-%d").date()
-        
+
         if g.get("es_recurrente", False):
             if date(anio_seleccionado, mes_seleccionado, 1) >= date(f_inicio.year, f_inicio.month, 1):
+                meses_diff = (anio_seleccionado - f_inicio.year) * 12 + (mes_seleccionado - f_inicio.month)
+                cuota_act = min(g.get("cuota_inicial", 1) + meses_diff, g.get("cuota_total", 1))
                 gastos_proyectados.append({
                     "Concepto": g["descripcion"],
                     "Medio de Pago": g["medio_pago"],
-                    "Cuota Progreso": "Recurrente",
+                    "Cuota Progreso": f"Recurrente ({cuota_act}/{g.get('cuota_total', 1)})",
                     "Monto a Pagar": g["monto_cuota"]
                 })
                 total_gastos += g["monto_cuota"]
@@ -356,13 +438,17 @@ def RENDERIZAR_FINANZA_PRO():
                 total_gastos += g["monto_cuota"]
 
     balance_neto = total_ingresos - total_gastos
-    nombre_mes = date(2000, mes_seleccionado, 1).strftime('%B').capitalize()
+    nombre_mes = date(2000, mes_seleccionado, 1).strftime("%B").capitalize()
 
-    # 3. Cargar y Renderizar Plantilla HTML de Stitch
+    if st.session_state.get("estado_capuchino") != "hablando":
+        st.session_state["estado_capuchino"] = "alerta" if balance_neto < 0 else "normal"
+
+    capu_b64, _ = cargar_imagen_capuchino_b64(st.session_state["estado_capuchino"])
+
     if os.path.exists("index.html"):
         with open("index.html", "r", encoding="utf-8") as f:
             plantilla = Template(f.read())
-        
+
         html_final = plantilla.render(
             usuario=nombre_usuario,
             mes_nombre=nombre_mes,
@@ -372,12 +458,27 @@ def RENDERIZAR_FINANZA_PRO():
             balance_neto=balance_neto,
             num_tarjetas=len(st.session_state.get("tarjetas", [])),
             gastos=gastos_proyectados,
-            tarjetas=st.session_state.get("tarjetas", [])
+            tarjetas=st.session_state.get("tarjetas", []),
+            capu_img_b64=capu_b64
         )
 
         components.html(html_final, height=880, scrolling=True)
     else:
         st.error("El archivo 'index.html' no se encuentra en el repositorio.")
 
-# Ejecutar el renderizado de la interfaz principal
+    st.markdown("---")
+    st.subheader("🐱 Hablar con Capuchino")
+    col_v1, col_v2 = st.columns([3, 1])
+    with col_v1:
+        if balance_neto >= 0:
+            mensaje_capu = f"¡Miau, {nombre_usuario}! En {nombre_mes} {anio_seleccionado} tienes ingresos por ${total_ingresos:.2f}, gastos por ${total_gastos:.2f} y un balance neto de ${balance_neto:.2f}."
+        else:
+            mensaje_capu = f"¡Miau, {nombre_usuario}! En {nombre_mes} {anio_seleccionado} tus gastos superan tus ingresos. Revisa tus cuotas y controla tus compras."
+        st.info(mensaje_capu)
+    with col_v2:
+        if st.button("🔊 Escuchar a Capuchino", type="primary", use_container_width=True):
+            st.session_state["estado_capuchino"] = "hablando"
+            capuchino_habla(mensaje_capu)
+            st.rerun()
+
 RENDERIZAR_FINANZA_PRO()
