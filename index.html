@@ -66,7 +66,7 @@
                 </div>
             </div>
             <div>
-                <h2 class="text-2xl font-bold text-gray-900">${{ "%.2f"|format(total_ingresos) }}</h2>
+                <h2 class="text-2xl font-bold text-gray-900">${{ "%.2f"|format(total_ingresos|default(0)) }}</h2>
                 <div class="flex items-center gap-1 mt-1 text-emerald-600 text-xs font-semibold">
                     <span class="material-symbols-outlined text-[16px]">arrow_upward</span>
                     <span>Total disponible</span>
@@ -83,7 +83,7 @@
                 </div>
             </div>
             <div>
-                <h2 class="text-2xl font-bold text-gray-900">${{ "%.2f"|format(total_gastos) }}</h2>
+                <h2 class="text-2xl font-bold text-gray-900">${{ "%.2f"|format(total_gastos|default(0)) }}</h2>
                 <div class="flex items-center gap-1 mt-1 text-rose-600 text-xs font-semibold">
                     <span class="material-symbols-outlined text-[16px]">arrow_downward</span>
                     <span>Cuotas y consumos</span>
@@ -100,8 +100,9 @@
                 </div>
             </div>
             <div>
-                <h2 class="text-2xl font-bold {% if balance_neto >= 0 %}text-emerald-600{% else %}text-rose-600{% endif %}">
-                    ${{ "%.2f"|format(balance_neto) }}
+                {% set neto = balance_neto|default(0) %}
+                <h2 class="text-2xl font-bold {% if neto >= 0 %}text-emerald-600{% else %}text-rose-600{% endif %}">
+                    ${{ "%.2f"|format(neto) }}
                 </h2>
                 <p class="text-xs text-gray-400 mt-1">Ingresos − Gastos</p>
             </div>
@@ -116,7 +117,7 @@
                 </div>
             </div>
             <div>
-                <h2 class="text-2xl font-bold text-gray-900">{{ num_tarjetas }}</h2>
+                <h2 class="text-2xl font-bold text-gray-900">{{ num_tarjetas|default(0) }}</h2>
                 <span class="text-blue-600 text-xs font-semibold mt-1 block">Métodos configurados</span>
             </div>
         </div>
@@ -142,7 +143,7 @@
                             </tr>
                         </thead>
                         <tbody class="text-sm text-gray-800 divide-y divide-gray-200">
-                            {% if gastos|length > 0 %}
+                            {% if gastos and gastos|length > 0 %}
                                 {% for g in gastos %}
                                 <tr class="hover:bg-gray-50 transition-colors">
                                     <td class="py-4 px-5 font-medium text-gray-900">{{ g.Concepto }}</td>
@@ -153,7 +154,7 @@
                                         </span>
                                     </td>
                                     <td class="py-4 px-5 text-right font-semibold font-mono text-gray-900">
-                                        -${{ "%.2f"|format(g['Monto a Pagar']) }}
+                                        -${{ "%.2f"|format(g['Monto a Pagar']|default(0)) }}
                                     </td>
                                 </tr>
                                 {% endfor %}
@@ -175,16 +176,24 @@
             <!-- Gestión de Tarjetas -->
             <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-200">
                 <h3 class="text-lg font-bold text-gray-900 border-b border-gray-200 pb-3 mb-4">Gestión de Tarjetas</h3>
-                
-                {% if tarjetas|length > 0 %}
+
+                {% if tarjetas and tarjetas|length > 0 %}
                     {% for t in tarjetas %}
+                    {% set max_pagar = t.maximo_pagar|default(0)|float %}
+                    {% set usado = t.consumo_actual|default(0)|float %}
                     <div class="relative w-full rounded-xl overflow-hidden shadow-md mb-4 p-5 text-white bg-gradient-to-br from-[#0A192F] to-[#1e3a68]">
                         <div class="flex justify-between items-start">
                             <span class="font-bold tracking-wider text-sm">FinanzaPro</span>
                             <span class="material-symbols-outlined opacity-80">contactless</span>
                         </div>
-                        <div class="mt-6">
+                        <div class="mt-5">
                             <div class="font-mono text-sm tracking-widest mb-2 font-semibold">{{ t.nombre }}</div>
+                            <div class="flex justify-between items-center text-xs text-blue-200 mb-2">
+                                <span>Máx. a pagar: <strong>${{ "%.2f"|format(max_pagar) }}</strong></span>
+                                {% if t.consumo_actual is defined %}
+                                <span>Usado: <strong>${{ "%.2f"|format(usado) }}</strong></span>
+                                {% endif %}
+                            </div>
                             <div class="flex justify-between items-end text-xs text-gray-300 border-t border-white/10 pt-2">
                                 <span>Corte: Día {{ t.dia_corte }}</span>
                                 <span>Límite Pago: Día {{ t.dia_pago }}</span>
