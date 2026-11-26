@@ -4,3 +4,4 @@ openpyxl
 reportlab
 python-dateutil
 jinja2
+edge-tts
