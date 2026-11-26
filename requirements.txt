@@ -5,3 +5,4 @@ reportlab
 python-dateutil
 jinja2
 edge-tts
+google-genai
