@@ -2,6 +2,7 @@ import base64
 import io
 import json
 import os
+import re
 import unicodedata
 from datetime import date, datetime
 
@@ -35,6 +36,19 @@ def normalizar_texto(texto: str) -> str:
     limpio = unicodedata.normalize("NFD", str(texto).lower().strip())
     limpio = "".join(c for c in limpio if unicodedata.category(c) != "Mn")
     return " ".join(limpio.split())
+
+
+def nombre_hoja_excel(nombre: str, usados: set) -> str:
+    limpio = re.sub(r'[\\/*?:\[\]]', "", str(nombre)).strip() or "Hoja"
+    limpio = limpio.replace(" ", "_")[:28]
+    candidato = limpio
+    contador = 2
+    while candidato.lower() in usados:
+        sufijo = f"_{contador}"
+        candidato = f"{limpio[:31 - len(sufijo)]}{sufijo}"
+        contador += 1
+    usados.add(candidato.lower())
+    return candidato
 
 
 def tarjetas_por_defecto():
@@ -565,7 +579,6 @@ total_iva_mes = 0.0
 total_solca_mes = 0.0
 
 for g in st.session_state["gastos"]:
-    # Soporta tanto registros con fecha_inicio (proyección multi-mes) como registros directos por Mes/Año
     fecha_ini_str = g.get("fecha_inicio")
     if fecha_ini_str:
         try:
@@ -603,7 +616,6 @@ for g in st.session_state["gastos"]:
         iva_item = float(g.get("IVA (15%)", 0.0))
         solca_item = float(g.get("SOLCA (0.5%)", 0.0))
 
-        # Prorratear IVA/SOLCA si es compra en cuotas múltiples
         if not g.get("Recurrente") and int(g.get("Cuotas Totales", 1)) > 1:
             iva_mes_item = round(iva_item / int(g.get("Cuotas Totales", 1)), 2)
             solca_mes_item = round(solca_item / int(g.get("Cuotas Totales", 1)), 2)
@@ -630,6 +642,12 @@ for g in st.session_state["gastos"]:
         total_iva_mes += iva_mes_item
         total_solca_mes += solca_mes_item
 
+# Ordenar cuotas de mayor a menor plazo (ej. 12 cuotas -> 6 cuotas -> 3 cuotas -> 1 cuota)
+gastos_proyectados.sort(
+    key=lambda item: (item["Cuotas Totales"], item["Monto a Pagar"]),
+    reverse=True,
+)
+
 ingresos_mes = [
     i for i in st.session_state["ingresos"]
     if i.get("Mes") == mes_nombre and int(i.get("Año", anio_sel)) == int(anio_sel)
@@ -648,7 +666,6 @@ extras_mes = (
 )
 ingresos_registrados_mes = float(df_ingresos["Monto"].sum()) if not df_ingresos.empty else 0.0
 
-# Total ingresos efectivos del mes (si no registró sueldo explícito, usa ingreso_base + extras)
 total_ingresos_mes = (
     ingresos_registrados_mes
     if ingresos_sueldo_reg > 0
@@ -662,6 +679,7 @@ balance_neto = total_ingresos_mes - total_gastos_mes
 # Calcular consumo actual por cada tarjeta configurada
 tarjetas_detalle = []
 alerta_tarjeta = False
+tarjetas_excedidas = []
 for t in st.session_state["tarjetas"]:
     nombre_t = str(t.get("nombre", "")).strip()
     norm_t = normalizar_texto(nombre_t)
@@ -673,6 +691,7 @@ for t in st.session_state["tarjetas"]:
     max_pagar = float(t.get("maximo_pagar", 0.0))
     if max_pagar > 0 and consumo_t > max_pagar:
         alerta_tarjeta = True
+        tarjetas_excedidas.append(f"{nombre_t} (${consumo_t:,.2f} / máx ${max_pagar:,.2f})")
     tarjetas_detalle.append(
         {
             "nombre": nombre_t,
@@ -708,10 +727,15 @@ contexto_mes = {
 # ---------------------------------------------------------
 if st.session_state["respuesta_capu"]:
     mensaje_burbuja = st.session_state["respuesta_capu"]
-elif disponible_mes < 0 or alerta_tarjeta:
+elif alerta_tarjeta:
+    mensaje_burbuja = (
+        f"¡Miau, {st.session_state['usuario']}! Alerta en {mes_nombre}: superaste el máximo a pagar en "
+        f"{', '.join(tarjetas_excedidas)}."
+    )
+elif disponible_mes < 0:
     mensaje_burbuja = (
         f"¡Miau, {st.session_state['usuario']}! Ojo en {mes_nombre}: llevas ${total_gastos_mes:,.2f} "
-        f"en gastos (cupo mensual: ${limite_gasto_mensual:,.2f}) o alguna tarjeta superó su máximo a pagar."
+        f"en gastos y superaste tu cupo mensual de ${limite_gasto_mensual:,.2f}."
     )
 elif total_gastos_mes > 0 or extras_mes > 0:
     mensaje_burbuja = (
@@ -1127,8 +1151,14 @@ with e2:
 st.markdown("---")
 ex1, ex2 = st.columns(2)
 
+cols_export_gastos = [
+    "Concepto", "Medio de Pago", "Cuota Progreso",
+    "Subtotal", "IVA (15%)", "SOLCA (0.5%)", "Monto a Pagar",
+]
+
 with ex1:
     buf_xlsx = io.BytesIO()
+    hojas_usadas = set()
     with pd.ExcelWriter(buf_xlsx, engine="openpyxl") as writer:
         df_res = pd.DataFrame(
             [
@@ -1147,13 +1177,52 @@ with ex1:
                 }
             ]
         )
-        df_res.to_excel(writer, sheet_name="Resumen", index=False)
+        df_res.to_excel(writer, sheet_name=nombre_hoja_excel("Resumen", hojas_usadas), index=False)
+
         if tarjetas_detalle:
-            pd.DataFrame(tarjetas_detalle).to_excel(writer, sheet_name="Tarjetas", index=False)
+            pd.DataFrame(tarjetas_detalle).to_excel(
+                writer, sheet_name=nombre_hoja_excel("Tarjetas", hojas_usadas), index=False
+            )
+
         if gastos_proyectados:
-            pd.DataFrame(gastos_proyectados).to_excel(writer, sheet_name="Gastos_Mes", index=False)
+            df_g_all = pd.DataFrame(gastos_proyectados)[cols_export_gastos]
+            df_g_all.to_excel(
+                writer, sheet_name=nombre_hoja_excel("Gastos_Mes", hojas_usadas), index=False
+            )
+
+            # Separación por cada tarjeta configurada + Efectivo/Otros
+            indices_asignados = set()
+            for t in tarjetas_detalle:
+                norm_t = normalizar_texto(t["nombre"])
+                filas_t = [
+                    gp for idx_gp, gp in enumerate(gastos_proyectados)
+                    if norm_t and norm_t in normalizar_texto(gp["Medio de Pago"])
+                ]
+                for idx_gp, gp in enumerate(gastos_proyectados):
+                    if norm_t and norm_t in normalizar_texto(gp["Medio de Pago"]):
+                        indices_asignados.add(idx_gp)
+                if filas_t:
+                    pd.DataFrame(filas_t)[cols_export_gastos].to_excel(
+                        writer,
+                        sheet_name=nombre_hoja_excel(t["nombre"], hojas_usadas),
+                        index=False,
+                    )
+
+            filas_otros = [
+                gp for idx_gp, gp in enumerate(gastos_proyectados)
+                if idx_gp not in indices_asignados
+            ]
+            if filas_otros:
+                pd.DataFrame(filas_otros)[cols_export_gastos].to_excel(
+                    writer,
+                    sheet_name=nombre_hoja_excel("Efectivo_y_Otros", hojas_usadas),
+                    index=False,
+                )
+
         if not df_ingresos.empty:
-            df_ingresos.to_excel(writer, sheet_name="Ingresos_Mes", index=False)
+            df_ingresos.to_excel(
+                writer, sheet_name=nombre_hoja_excel("Ingresos_Mes", hojas_usadas), index=False
+            )
 
     st.download_button(
         label="📊 Descargar Reporte Excel (.xlsx)",
@@ -1169,10 +1238,25 @@ with ex2:
     pdf.setFont("Helvetica-Bold", 13)
     pdf.drawString(50, 750, f"FinanzaPro - Reporte {mes_nombre} {anio_sel} ({st.session_state['usuario']})")
     pdf.setFont("Helvetica", 10)
-    pdf.drawString(50, 730, f"Ingresos: ${total_ingresos_mes:,.2f} | Gastos: ${total_gastos_mes:,.2f} | Balance Neto: ${balance_neto:,.2f}")
-    pdf.drawString(50, 714, f"Cupo mensual: ${limite_gasto_mensual:,.2f} | Disponible: ${disponible_mes:,.2f} | Ahorro: ${ahorro_proyectado_mes:,.2f}")
+    pdf.drawString(50, 732, f"Ingresos: ${total_ingresos_mes:,.2f} | Gastos: ${total_gastos_mes:,.2f} | Balance Neto: ${balance_neto:,.2f}")
+    pdf.drawString(50, 716, f"Cupo mensual: ${limite_gasto_mensual:,.2f} | Disponible: ${disponible_mes:,.2f} | Ahorro: ${ahorro_proyectado_mes:,.2f}")
 
-    y = 684
+    y = 696
+    if tarjetas_detalle:
+        pdf.setFont("Helvetica-Bold", 9)
+        pdf.drawString(50, y, "Resumen por Tarjeta:")
+        y -= 13
+        pdf.setFont("Helvetica", 9)
+        for td in tarjetas_detalle:
+            pdf.drawString(
+                60,
+                y,
+                f"- {td['nombre']}: ${td['consumo_actual']:,.2f} / Max ${td['maximo_pagar']:,.2f} "
+                f"(Corte dia {td['dia_corte']}, Pago dia {td['dia_pago']})",
+            )
+            y -= 13
+        y -= 6
+
     pdf.setFont("Helvetica-Bold", 9)
     pdf.drawString(50, y, "Concepto")
     pdf.drawString(230, y, "Medio de Pago")
